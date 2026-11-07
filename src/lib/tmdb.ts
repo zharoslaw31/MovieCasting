@@ -76,20 +76,24 @@ const mapMovie = (m: RawMovie): Movie => ({
 
 type Page = { page: number; total_pages: number; results: RawMovie[] };
 
-export async function discover(ctx: ApiCtx, f: Filters, page: number): Promise<{ movies: Movie[]; totalPages: number }> {
+type Slice = { sort?: string; year?: number | null };
+
+export async function discover(ctx: ApiCtx, f: Filters, page: number, slice: Slice = {}): Promise<{ movies: Movie[]; totalPages: number }> {
   if (isDemo(ctx)) {
     const list = DEMO_MOVIES.filter((m) => matchesFilters(m, f));
     return { movies: page === 1 ? shuffle(list) : [], totalPages: 1 };
   }
+  const yFrom = slice.year ?? f.yearFrom;
+  const yTo = slice.year ?? f.yearTo;
   const data = await request<Page>(ctx, '/discover/movie', {
     page,
-    sort_by: f.sortBy,
+    sort_by: slice.sort ?? (f.sortBy === 'random' ? 'popularity.desc' : f.sortBy),
     include_adult: 'false',
     include_video: 'false',
     with_genres: f.genres.length ? f.genres.join(',') : undefined,
     without_genres: f.excludeGenres.length ? f.excludeGenres.join(',') : undefined,
-    'primary_release_date.gte': f.yearFrom ? `${f.yearFrom}-01-01` : undefined,
-    'primary_release_date.lte': f.yearTo ? `${f.yearTo}-12-31` : todayIso(),
+    'primary_release_date.gte': yFrom ? `${yFrom}-01-01` : undefined,
+    'primary_release_date.lte': yTo ? `${yTo}-12-31` : todayIso(),
     'vote_average.gte': f.minRating || undefined,
     'vote_count.gte': f.minVotes || undefined,
     'with_runtime.gte': f.runtimeMin ?? undefined,
@@ -103,12 +107,126 @@ export async function discover(ctx: ApiCtx, f: Filters, page: number): Promise<{
   };
 }
 
-export type FeedKind = 'popular' | 'upcoming' | 'now_playing' | 'top_rated';
+/**
+ * Випадковий обхід усієї бази TMDB.
+ * TMDB віддає максимум 500 сторінок на один запит-фільтр, тому ми щоразу беремо
+ * випадковий «зріз»: випадкове сортування + (часто) випадковий рік + випадкову сторінку.
+ * Так доступні всі фільми бази, а не лише перші 10 000 популярних.
+ */
+const RANDOM_SORTS = [
+  'popularity.desc',
+  'popularity.asc',
+  'vote_average.desc',
+  'vote_average.asc',
+  'vote_count.desc',
+  'vote_count.asc',
+  'revenue.desc',
+  'primary_release_date.desc',
+  'primary_release_date.asc',
+  'original_title.asc',
+  'original_title.desc',
+];
 
-export async function feed(ctx: ApiCtx, kind: FeedKind, page: number): Promise<{ movies: Movie[]; totalPages: number }> {
-  if (isDemo(ctx)) return { movies: page === 1 ? shuffle(DEMO_MOVIES) : [], totalPages: 1 };
-  const data = await request<Page>(ctx, `/movie/${kind}`, { page });
-  return { movies: data.results.map(mapMovie), totalPages: Math.min(data.total_pages, 500) };
+const randInt = (a: number, b: number) => a + Math.floor(Math.random() * (b - a + 1));
+const pick = <T,>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
+
+export type Pager = { next: () => Promise<Movie[]>; exhausted: () => boolean };
+
+export function createPager(ctx: ApiCtx, f: Filters): Pager {
+  const totals = new Map<string, number>();
+  const used = new Set<string>();
+  const thisYear = new Date().getFullYear();
+  const yFrom = f.yearFrom ?? 1930;
+  const yTo = Math.min(f.yearTo ?? thisYear, thisYear);
+  let seqPage = 1;
+  let done = false;
+
+  const randomNext = async (): Promise<Movie[]> => {
+    for (let attempt = 0; attempt < 8; attempt++) {
+      const sort = pick(RANDOM_SORTS);
+      // 60% запитів — випадковий рік (ближчі роки трохи ймовірніші), решта — весь діапазон
+      const useYear = yTo - yFrom >= 2 && Math.random() < 0.6;
+      const year = useYear ? yTo - Math.floor(Math.pow(Math.random(), 1.4) * (yTo - yFrom + 1)) : null;
+      const key = year ? `y${year}` : 'all';
+      const total = totals.get(key);
+      if (total === 0) continue;
+      const page = total ? randInt(1, total) : 1;
+      const id = `${key}|${sort}|${page}`;
+      if (used.has(id)) continue;
+      used.add(id);
+      const res = await discover(ctx, f, page, { sort, year });
+      totals.set(key, res.totalPages);
+      if (key === 'all' && res.totalPages === 0) {
+        done = true;
+        return [];
+      }
+      if (res.movies.length) return shuffle(res.movies);
+    }
+    return [];
+  };
+
+  const sequentialNext = async (): Promise<Movie[]> => {
+    const total = totals.get('all');
+    if (total !== undefined && seqPage > total) {
+      done = true;
+      return [];
+    }
+    const res = await discover(ctx, f, seqPage++);
+    totals.set('all', res.totalPages);
+    return shuffle(res.movies);
+  };
+
+  return {
+    next: () => (isDemo(ctx) ? (done ? Promise.resolve([]) : ((done = true), discover(ctx, f, 1).then((r) => r.movies))) : f.sortBy === 'random' ? randomNext() : sequentialNext()),
+    exhausted: () => done,
+  };
+}
+
+export type FeedKind = 'mix' | 'popular' | 'upcoming' | 'now_playing' | 'top_rated';
+
+const MIX_FILTERS: Filters = {
+  genres: [],
+  excludeGenres: [],
+  yearFrom: 1970,
+  yearTo: null,
+  minRating: 0,
+  minVotes: 80,
+  runtimeMin: 60,
+  runtimeMax: null,
+  language: null,
+  country: null,
+  sortBy: 'random',
+};
+
+/** Стрічка трейлерів: «Мікс» — випадкові фільми з усієї бази, інші вкладки — випадкові сторінки своїх списків. */
+export function createFeedPager(ctx: ApiCtx, kind: FeedKind): Pager {
+  if (kind === 'mix') return createPager(ctx, MIX_FILTERS);
+  let total: number | null = null;
+  const used = new Set<number>();
+  let done = false;
+  return {
+    exhausted: () => done,
+    next: async () => {
+      if (isDemo(ctx)) {
+        if (done) return [];
+        done = true;
+        return shuffle(DEMO_MOVIES);
+      }
+      if (total !== null && used.size >= total) {
+        done = true;
+        return [];
+      }
+      let page = 1;
+      if (total !== null) {
+        do page = randInt(1, total);
+        while (used.has(page));
+      }
+      used.add(page);
+      const data = await request<Page>(ctx, `/movie/${kind}`, { page });
+      total = Math.min(data.total_pages, 500);
+      return shuffle(data.results.map(mapMovie).filter((m) => m.posterPath));
+    },
+  };
 }
 
 export async function search(ctx: ApiCtx, query: string): Promise<Movie[]> {

@@ -27,6 +27,7 @@ export type MovieDetails = Movie & {
 };
 
 export type SortBy =
+  | 'random'
   | 'popularity.desc'
   | 'vote_average.desc'
   | 'primary_release_date.desc'
@@ -53,12 +54,12 @@ export const DEFAULT_FILTERS: Filters = {
   yearFrom: null,
   yearTo: null,
   minRating: 0,
-  minVotes: 200,
+  minVotes: 20,
   runtimeMin: null,
   runtimeMax: null,
   language: null,
   country: null,
-  sortBy: 'popularity.desc',
+  sortBy: 'random',
 };
 
 export type SwipeKind = 'like' | 'nope' | 'watched';

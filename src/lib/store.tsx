@@ -6,6 +6,8 @@ import { ENV_API_KEY } from './tmdb';
 import { DEFAULT_FILTERS, Filters, LibraryEntry, Movie, Profile, Settings, SwipeKind } from './types';
 
 const STORAGE_KEY = 'moviecasting/state/v1';
+// Підвищуємо, коли змінюються типові фільтри — старі збережені фільтри скидаються.
+const FILTERS_VERSION = 2;
 
 type State = {
   ready: boolean;
@@ -17,6 +19,7 @@ type State = {
   disliked: LibraryEntry[];
   history: { id: number; kind: SwipeKind; at: number }[]; // для «скасувати» та статистики
   trailersViewed: number;
+  filtersV?: number;
 };
 
 const initial: State = {
@@ -29,7 +32,10 @@ const initial: State = {
   disliked: [],
   history: [],
   trailersViewed: 0,
+  filtersV: FILTERS_VERSION,
 };
+
+export type ListName = 'liked' | 'watched' | 'disliked';
 
 type Action =
   | { type: 'hydrate'; state: Partial<State> }
@@ -38,7 +44,12 @@ type Action =
   | { type: 'toggleLike'; movie: Movie }
   | { type: 'toggleWatched'; movie: Movie }
   | { type: 'rate'; id: number; rating: number }
-  | { type: 'remove'; id: number; list: 'liked' | 'watched' | 'disliked' }
+  | { type: 'remove'; id: number; list: ListName }
+  | { type: 'removeMany'; ids: number[]; list: ListName }
+  | { type: 'removeEverywhere'; id: number }
+  | { type: 'restore'; entries: LibraryEntry[]; list: ListName }
+  | { type: 'markWatchedMany'; movies: Movie[] }
+  | { type: 'likeMany'; movies: Movie[] }
   | { type: 'filters'; filters: Filters }
   | { type: 'settings'; settings: Partial<Settings> }
   | { type: 'profile'; profile: Partial<Profile> }
@@ -51,7 +62,13 @@ const has = (list: LibraryEntry[], id: number) => list.some((e) => e.movie.id ==
 function reducer(s: State, a: Action): State {
   switch (a.type) {
     case 'hydrate':
-      return { ...s, ...a.state, filters: { ...DEFAULT_FILTERS, ...(a.state.filters ?? {}) }, ready: true };
+      return {
+        ...s,
+        ...a.state,
+        filters: a.state.filtersV === FILTERS_VERSION ? { ...DEFAULT_FILTERS, ...(a.state.filters ?? {}) } : DEFAULT_FILTERS,
+        filtersV: FILTERS_VERSION,
+        ready: true,
+      };
     case 'swipe': {
       const entry = { movie: a.movie, at: Date.now() };
       const id = a.movie.id;
@@ -79,6 +96,31 @@ function reducer(s: State, a: Action): State {
       return { ...s, watched: s.watched.map((e) => (e.movie.id === a.id ? { ...e, myRating: a.rating } : e)) };
     case 'remove':
       return { ...s, [a.list]: without(s[a.list], a.id) };
+    case 'removeMany': {
+      const ids = new Set(a.ids);
+      return { ...s, [a.list]: s[a.list].filter((e) => !ids.has(e.movie.id)) };
+    }
+    case 'removeEverywhere':
+      return { ...s, liked: without(s.liked, a.id), watched: without(s.watched, a.id), disliked: without(s.disliked, a.id) };
+    case 'restore': {
+      const ids = new Set(a.entries.map((e) => e.movie.id));
+      return { ...s, [a.list]: [...a.entries, ...s[a.list].filter((e) => !ids.has(e.movie.id))].sort((x, y) => y.at - x.at) };
+    }
+    case 'markWatchedMany': {
+      const have = new Set(s.watched.map((e) => e.movie.id));
+      const now = Date.now();
+      return { ...s, watched: [...a.movies.filter((m) => !have.has(m.id)).map((movie) => ({ movie, at: now })), ...s.watched] };
+    }
+    case 'likeMany': {
+      const have = new Set(s.liked.map((e) => e.movie.id));
+      const ids = new Set(a.movies.map((m) => m.id));
+      const now = Date.now();
+      return {
+        ...s,
+        liked: [...a.movies.filter((m) => !have.has(m.id)).map((movie) => ({ movie, at: now })), ...s.liked],
+        disliked: s.disliked.filter((e) => !ids.has(e.movie.id)),
+      };
+    }
     case 'filters':
       return { ...s, filters: a.filters };
     case 'settings':

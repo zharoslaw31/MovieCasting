@@ -23,7 +23,7 @@ const ERAS: { label: string; from: number | null; to: number | null }[] = [
 ];
 
 const RATINGS = [0, 5, 6, 7, 7.5, 8];
-const VOTES = [0, 50, 200, 1000, 5000, 20000];
+const VOTES = [0, 20, 100, 500, 2000, 10000];
 const RUNTIMES: { label: string; min: number | null; max: number | null }[] = [
   { label: 'Будь-яка', min: null, max: null },
   { label: 'до 90 хв', min: null, max: 90 },
@@ -32,6 +32,7 @@ const RUNTIMES: { label: string; min: number | null; max: number | null }[] = [
   { label: '2.5+ год', min: 150, max: null },
 ];
 const SORTS: { value: SortBy; label: string; icon: string }[] = [
+  { value: 'random', label: 'Випадково з усієї бази', icon: '🎲' },
   { value: 'popularity.desc', label: 'Популярні', icon: '🔥' },
   { value: 'vote_average.desc', label: 'Найвищий рейтинг', icon: '⭐' },
   { value: 'vote_count.desc', label: 'Найбільше оцінок', icon: '👥' },

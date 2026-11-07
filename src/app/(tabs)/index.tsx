@@ -6,7 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SwipeDeck, SwipeDeckHandle } from '../../components/SwipeDeck';
 import { GradientButton, GhostButton, RoundButton } from '../../components/ui';
 import { countActiveFilters, useHaptics, useStore } from '../../lib/store';
-import { discover } from '../../lib/tmdb';
+import { createPager, Pager } from '../../lib/tmdb';
 import { Movie, SwipeKind } from '../../lib/types';
 import { colors, gradients, radius, TAB_BAR_HEIGHT } from '../../theme';
 
@@ -19,36 +19,40 @@ export default function CastingScreen() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [exhausted, setExhausted] = useState(false);
-  const page = useRef(1);
-  const totalPages = useRef(1);
+  const pager = useRef<Pager | null>(null);
   const loadingRef = useRef(false);
   const seenRef = useRef(seen);
   seenRef.current = seen;
   const generation = useRef(0);
+  const [shuffleTick, setShuffleTick] = useState(0);
 
-  const filtersKey = JSON.stringify(state.filters) + api.language + String(api.demo) + api.apiKey;
+  const filtersKey = JSON.stringify(state.filters) + api.language + String(api.demo) + api.apiKey + shuffleTick;
 
   const loadMore = useCallback(async () => {
-    if (loadingRef.current) return;
+    if (loadingRef.current || !pager.current) return;
     loadingRef.current = true;
     setLoading(true);
     setError(null);
     const gen = generation.current;
+    const p = pager.current;
     try {
       let added: Movie[] = [];
-      // гортаємо сторінки, доки не знайдемо непереглянуті фільми
-      for (let tries = 0; tries < 6 && added.length < 8 && page.current <= totalPages.current; tries++) {
-        const res = await discover(api, state.filters, page.current);
+      let emptyRounds = 0;
+      // тягнемо по 3 випадкові сторінки паралельно, доки не наберемо нових фільмів
+      while (added.length < 12 && emptyRounds < 3 && !p.exhausted()) {
+        const batches = await Promise.all([p.next(), p.next(), p.next()]);
         if (gen !== generation.current) return;
-        totalPages.current = res.totalPages;
-        page.current += 1;
-        added = added.concat(res.movies.filter((m) => !seenRef.current.has(m.id)));
+        const fresh = batches.flat().filter((m) => !seenRef.current.has(m.id) && !added.some((x) => x.id === m.id));
+        if (fresh.length) {
+          added = added.concat(fresh);
+          emptyRounds = 0;
+        } else emptyRounds++;
       }
       setQueue((q) => {
         const ids = new Set(q.map((m) => m.id));
-        return [...q, ...added.filter((m) => !ids.has(m.id))];
+        return [...q, ...shuffleArr(added.filter((m) => !ids.has(m.id)))];
       });
-      if (page.current > totalPages.current && added.length === 0) setExhausted(true);
+      if (!added.length && (p.exhausted() || emptyRounds >= 3)) setExhausted(true);
     } catch (e) {
       if (gen === generation.current) setError(e instanceof Error ? e.message : 'Не вдалося завантажити фільми');
     } finally {
@@ -57,23 +61,22 @@ export default function CastingScreen() {
         setLoading(false);
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filtersKey]);
+  }, []);
 
-  // Скидання колоди при зміні фільтрів / ключа
+  // Нова колода при зміні фільтрів / ключа / натисканні «Перемішати»
   useEffect(() => {
     if (!state.ready) return;
     generation.current += 1;
     loadingRef.current = false;
-    page.current = 1;
-    totalPages.current = 1;
+    pager.current = createPager(api, state.filters);
     setQueue([]);
     setExhausted(false);
     loadMore();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersKey, state.ready, loadMore]);
 
   useEffect(() => {
-    if (state.ready && queue.length < 5 && !exhausted && !error) loadMore();
+    if (state.ready && queue.length < 6 && !exhausted && !error) loadMore();
   }, [queue.length, exhausted, error, loadMore, state.ready]);
 
   const onSwipe = useCallback(
@@ -109,9 +112,20 @@ export default function CastingScreen() {
           <Text style={styles.logo}>
             Movie<Text style={{ color: colors.accent }}>Casting</Text>
           </Text>
-          <Text style={styles.sub}>{api.demo ? 'Демо-режим · додайте ключ у Профілі' : 'Свайпай і знаходь своє кіно'}</Text>
+          <Text style={styles.sub}>{api.demo ? 'Демо-режим · додайте ключ у Профілі' : state.filters.sortBy === 'random' ? 'Випадкові фільми з усієї бази' : 'Свайпай і знаходь своє кіно'}</Text>
         </View>
-        <Pressable onPress={() => router.push('/filters')} style={({ pressed }) => [styles.filterBtn, pressed && { opacity: 0.7 }]}>
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <Pressable
+          accessibilityLabel="Перемішати"
+          onPress={() => {
+            haptic('light');
+            setShuffleTick((t) => t + 1);
+          }}
+          style={({ pressed }) => [styles.filterBtn, pressed && { opacity: 0.7 }]}
+        >
+          <Ionicons name="shuffle" size={22} color={colors.text} />
+        </Pressable>
+        <Pressable accessibilityLabel="Фільтри" onPress={() => router.push('/filters')} style={({ pressed }) => [styles.filterBtn, pressed && { opacity: 0.7 }]}>
           <Ionicons name="options-outline" size={22} color={colors.text} />
           {activeFilters ? (
             <View style={styles.filterBadge}>
@@ -119,6 +133,7 @@ export default function CastingScreen() {
             </View>
           ) : null}
         </Pressable>
+        </View>
       </View>
 
       <View style={{ flex: 1, marginTop: 12 }}>
@@ -209,3 +224,12 @@ const styles = StyleSheet.create({
   emptyTitle: { color: colors.text, fontSize: 22, fontWeight: '800', marginTop: 12 },
   emptyText: { color: colors.textDim, fontSize: 15, textAlign: 'center', marginTop: 8, lineHeight: 21 },
 });
+
+function shuffleArr<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}

@@ -3,19 +3,20 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useIsFocused } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, FlatList, Linking, Pressable, Share, StyleSheet, Text, View, ListViewToken } from 'react-native';
+import { ActivityIndicator, useWindowDimensions, FlatList, Linking, Pressable, Share, StyleSheet, Text, View, ListViewToken } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { TrailerPlayer } from '../../components/TrailerPlayer';
 import { GradientButton } from '../../components/ui';
 import { genreName } from '../../lib/genres';
 import { useHaptics, useStore } from '../../lib/store';
-import { feed, FeedKind, IMG, trailerKey, year } from '../../lib/tmdb';
+import { createFeedPager, FeedKind, IMG, Pager, trailerKey, year } from '../../lib/tmdb';
 import { Movie } from '../../lib/types';
 import { colors, TAB_BAR_HEIGHT } from '../../theme';
 
 type Item = { movie: Movie; key: string };
 
 const KINDS: { value: FeedKind; label: string }[] = [
+  { value: 'mix', label: 'Мікс' },
   { value: 'popular', label: 'Популярне' },
   { value: 'upcoming', label: 'Скоро' },
   { value: 'now_playing', label: 'У кіно' },
@@ -25,38 +26,43 @@ const KINDS: { value: FeedKind; label: string }[] = [
 export default function TrailersScreen() {
   const insets = useSafeAreaInsets();
   const focused = useIsFocused();
-  const { api, dispatch } = useStore();
-  const [kind, setKind] = useState<FeedKind>('popular');
+  const { api, dispatch, state } = useStore();
+  const skipRef = useRef<Set<number>>(new Set());
+  skipRef.current = new Set([...state.disliked, ...state.watched].map((e) => e.movie.id));
+  const [kind, setKind] = useState<FeedKind>('mix');
   const [items, setItems] = useState<Item[]>([]);
   const [height, setHeight] = useState(0);
   const [active, setActive] = useState(0);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const page = useRef(1);
-  const total = useRef(1);
+  const pager = useRef<Pager | null>(null);
   const busy = useRef(false);
   const gen = useRef(0);
   const list = useRef<FlatList<Item>>(null);
+  const [exhausted, setExhausted] = useState(false);
 
   const apiKey = `${api.apiKey}|${api.language}|${api.demo}`;
 
   const load = useCallback(async () => {
-    if (busy.current || page.current > total.current) return;
+    const p = pager.current;
+    if (busy.current || !p || p.exhausted()) return;
     busy.current = true;
     setLoading(true);
     setError(null);
     const g = gen.current;
     try {
-      const res = await feed(api, kind, page.current);
-      total.current = res.totalPages;
-      page.current += 1;
-      const keys = await Promise.all(res.movies.map((m) => trailerKey(api, m.id).catch(() => null)));
-      if (g !== gen.current) return;
-      const fresh = res.movies.map((movie, i) => ({ movie, key: keys[i] })).filter((x): x is Item => !!x.key);
+      let found: Item[] = [];
+      for (let round = 0; round < 3 && found.length < 6 && !p.exhausted(); round++) {
+        const movies = (await Promise.all([p.next(), p.next()])).flat().filter((m) => !skipRef.current.has(m.id));
+        const keys = await Promise.all(movies.map((m) => trailerKey(api, m.id).catch(() => null)));
+        if (g !== gen.current) return;
+        found = found.concat(movies.map((movie, i) => ({ movie, key: keys[i] ?? '' })).filter((x) => !!x.key));
+      }
       setItems((prev) => {
-        const ids = new Set(prev.map((p) => p.movie.id));
-        return [...prev, ...fresh.filter((f) => !ids.has(f.movie.id))];
+        const ids = new Set(prev.map((it) => it.movie.id));
+        return [...prev, ...found.filter((f) => !ids.has(f.movie.id) && (ids.add(f.movie.id), true))];
       });
+      if (p.exhausted()) setExhausted(true);
     } catch (e) {
       if (g === gen.current) setError(e instanceof Error ? e.message : 'Помилка завантаження');
     } finally {
@@ -66,18 +72,19 @@ export default function TrailersScreen() {
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, apiKey]);
+  }, [apiKey]);
 
   useEffect(() => {
     gen.current += 1;
     busy.current = false;
-    page.current = 1;
-    total.current = 1;
+    pager.current = createFeedPager(api, kind);
     setItems([]);
     setActive(0);
+    setExhausted(false);
     list.current?.scrollToOffset({ offset: 0, animated: false });
     load();
-  }, [load]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, kind]);
 
   const viewConfig = useRef({ itemVisiblePercentThreshold: 70 }).current;
   const onViewable = useRef(({ viewableItems }: { viewableItems: ListViewToken[] }) => {
@@ -86,7 +93,7 @@ export default function TrailersScreen() {
   }).current;
 
   useEffect(() => {
-    if (items.length && active >= items.length - 3) load();
+    if (items.length && active >= items.length - 4) load();
     if (items.length) dispatch({ type: 'trailerViewed' });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
@@ -130,7 +137,7 @@ export default function TrailersScreen() {
               <Text style={[styles.emptyText, { marginTop: 12 }]}>Завантажуємо трейлери…</Text>
             </>
           ) : (
-            <Text style={styles.emptyText}>Трейлерів поки немає</Text>
+            <Text style={styles.emptyText}>{exhausted ? 'Трейлери в цій добірці закінчились' : 'Трейлерів поки немає'}</Text>
           )}
         </View>
       )}
@@ -177,13 +184,17 @@ const TrailerItem = React.memo(function TrailerItem({
 
   const bg = IMG(movie.backdropPath ?? movie.posterPath, 'w780');
   const thumb = `https://img.youtube.com/vi/${key}/hqdefault.jpg`;
+  const { width } = useWindowDimensions();
+  const videoH = (width * 9) / 16;
+  // відео — під вкладками; кнопки — одразу під відео, щоб плеєр їх не перекривав
+  const videoTop = Math.max(64, Math.min(height * 0.12, height - videoH - 360));
 
   return (
     <View style={{ height, backgroundColor: '#000' }}>
       {near && bg ? <Image source={{ uri: bg }} style={StyleSheet.absoluteFill} blurRadius={30} contentFit="cover" /> : null}
       <LinearGradient colors={['rgba(0,0,0,0.65)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.9)']} style={StyleSheet.absoluteFill} />
 
-      <View style={[styles.video, { top: Math.max(64, Math.min(height * 0.14, height - 560)) }]}>
+      <View style={[styles.video, { top: videoTop }]}>
         {active && started ? (
           <TrailerPlayer videoKey={key} />
         ) : (
@@ -198,7 +209,7 @@ const TrailerItem = React.memo(function TrailerItem({
         )}
       </View>
 
-      <View style={[styles.side, { bottom: bottomInset + 24 }]}>
+      <View style={[styles.side, { top: videoTop + videoH + 10 }]}>
         <SideButton
           icon={liked ? 'heart' : 'heart-outline'}
           color={liked ? colors.accent : '#fff'}
@@ -260,17 +271,17 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
   emptyEmoji: { fontSize: 48 },
   emptyText: { color: colors.textDim, fontSize: 15, textAlign: 'center', marginTop: 8 },
-  tabs: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 20 },
-  tab: { color: 'rgba(255,255,255,0.6)', fontSize: 16, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 6 },
+  tabs: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 16 },
+  tab: { color: 'rgba(255,255,255,0.6)', fontSize: 15, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 6 },
   tabActive: { color: '#fff', fontWeight: '900' },
   tabLine: { height: 3, width: 22, borderRadius: 2, backgroundColor: colors.accent, alignSelf: 'center', marginTop: 5 },
   video: { position: 'absolute', left: 0, right: 0, aspectRatio: 16 / 9, backgroundColor: '#000', overflow: 'hidden' },
   playWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' },
   play: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.accent + 'E6', alignItems: 'center', justifyContent: 'center' },
-  side: { position: 'absolute', right: 8, alignItems: 'center', gap: 8, zIndex: 5 },
+  side: { position: 'absolute', right: 6, alignItems: 'center', gap: 4, zIndex: 5 },
   sideBtn: { alignItems: 'center', width: 70 },
-  sideIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
-  sideLabel: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 4, textAlign: 'center' },
+  sideIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  sideLabel: { color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 3, textAlign: 'center' },
   info: { position: 'absolute', left: 16, right: 92, zIndex: 5 },
   title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: -0.3 },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 6 },

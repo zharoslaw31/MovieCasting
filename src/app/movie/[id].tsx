@@ -42,6 +42,7 @@ export default function MovieScreen() {
   const watched = isWatched(Number(id));
   const myRating = state.watched.find((e) => e.movie.id === Number(id))?.myRating;
   const heroH = Math.min(width * 1.1, 520);
+  const inLibrary = [...state.liked, ...state.watched, ...state.disliked].some((e) => e.movie.id === Number(id));
 
   if (!movie) {
     return (
@@ -157,6 +158,21 @@ export default function MovieScreen() {
         <Ionicons name="chevron-down" size={24} color="#fff" />
       </Pressable>
 
+      {inLibrary ? (
+        <Pressable
+          accessibilityLabel="Прибрати з бібліотеки"
+          onPress={() => {
+            dispatch({ type: 'removeEverywhere', id: Number(id) });
+            haptic('warning');
+          }}
+          style={[styles.back, styles.trash, { top: insets.top + 8 }]}
+          hitSlop={10}
+        >
+          <Ionicons name="trash-outline" size={18} color="#fff" />
+          <Text style={styles.trashText}>Прибрати</Text>
+        </Pressable>
+      ) : null}
+
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
         <GhostButton
           title={watched ? 'Переглянуто' : 'Бачив'}
@@ -231,5 +247,7 @@ const styles = StyleSheet.create({
   castName: { color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
   castRole: { color: colors.textMuted, fontSize: 11, textAlign: 'center' },
   back: { position: 'absolute', left: 14, width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(10,10,18,0.6)', alignItems: 'center', justifyContent: 'center' },
+  trash: { left: undefined, right: 14, width: undefined, paddingHorizontal: 12, flexDirection: 'row', gap: 6 },
+  trashText: { color: '#fff', fontWeight: '700', fontSize: 13 },
   bar: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: 12, paddingHorizontal: 18, paddingTop: 14, backgroundColor: colors.bg + 'F2', borderTopWidth: 1, borderTopColor: colors.border },
 });
