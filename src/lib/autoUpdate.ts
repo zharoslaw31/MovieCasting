@@ -17,7 +17,11 @@ async function check() {
     const res = await fetch(`${location.pathname.split('/').slice(0, 2).join('/')}/?v=${Date.now()}`, { cache: 'no-store' });
     const html = await res.text();
     const latest = html.match(/entry-[a-f0-9]+\.js/)?.[0];
-    if (latest && latest !== mine) location.reload();
+    if (latest && latest !== mine) {
+      // оновлюємо кеш самої сторінки, інакше телефон може перезавантажити стару копію
+      await Promise.all([location.href, `${location.pathname.split('/').slice(0, 2).join('/')}/`].map((u) => fetch(u, { cache: 'reload' }).catch(() => null)));
+      location.reload();
+    }
   } catch {}
 }
 
