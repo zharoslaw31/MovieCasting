@@ -189,6 +189,6 @@ const styles = StyleSheet.create({
   overview: { color: '#D8D8E4', fontSize: 14, lineHeight: 20, marginTop: 10 },
   more: { flexDirection: 'row', alignItems: 'center', marginTop: 8 },
   moreText: { color: colors.textDim, fontSize: 13, fontWeight: '700' },
-  stamp: { position: 'absolute', top: 60, borderWidth: 4, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: 'rgba(10,10,18,0.35)' },
-  stampText: { fontSize: 30, fontWeight: '900', letterSpacing: 2 },
+  stamp: { position: 'absolute', top: 70, borderWidth: 4, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6, backgroundColor: 'rgba(10,10,18,0.35)' },
+  stampText: { fontSize: 24, fontWeight: '900', letterSpacing: 1 },
 });
