@@ -6,10 +6,12 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SwipeDeck, SwipeDeckHandle } from '../../components/SwipeDeck';
 import { GradientButton, GhostButton, RoundButton } from '../../components/ui';
+import { tvMissingGenre } from '../../lib/genres';
 import { countActiveFilters, useHaptics, useStore } from '../../lib/store';
 import { buildTaste, createForYouPager, createPager, Pager } from '../../lib/tmdb';
 import { Movie, SwipeKind } from '../../lib/types';
 import { colors, gradients, radius, TAB_BAR_HEIGHT } from '../../theme';
+import { openTitle } from '../../lib/nav';
 
 export default function CastingScreen() {
   const insets = useSafeAreaInsets();
@@ -134,6 +136,12 @@ export default function CastingScreen() {
 
   const { width } = useWindowDimensions();
   const activeFilters = countActiveFilters(state.filters);
+  const content = state.filters.contentType ?? 'all';
+  // натиснули «Фільми» → лише фільми; ще раз → знову все разом
+  const setContent = (k: 'movie' | 'tv') => {
+    haptic('light');
+    dispatch({ type: 'filters', filters: { ...state.filters, contentType: content === k ? 'all' : k } });
+  };
   const bottomPad = TAB_BAR_HEIGHT + Math.max(insets.bottom, 12) + 12;
 
   return (
@@ -171,6 +179,9 @@ export default function CastingScreen() {
       </View>
 
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.modes} contentContainerStyle={styles.modesRow}>
+        <ModeChip icon="🎬" label="Фільми" active={content !== 'tv'} soft={content === 'all'} onPress={() => setContent('movie')} />
+        <ModeChip icon="📺" label="Серіали" active={content !== 'movie'} soft={content === 'all'} onPress={() => setContent('tv')} />
+        <View style={styles.modeSep} />
         <ModeChip icon="🎲" label="Уся база" active={!forYou} onPress={() => dispatch({ type: 'settings', settings: { castingMode: 'all' } })} />
         <ModeChip icon="✨" label="Для тебе" active={forYou} onPress={() => dispatch({ type: 'settings', settings: { castingMode: 'foryou' } })} />
         <ModeChip icon="🍿" label="Що сьогодні?" onPress={() => router.push('/tonight')} />
@@ -182,7 +193,7 @@ export default function CastingScreen() {
 
       <View style={{ flex: 1, marginTop: 10 }}>
         {queue.length ? (
-          <SwipeDeck ref={deck} movies={queue} onSwipe={handleSwipe} onOpen={(m) => router.push(`/movie/${m.id}`)} />
+          <SwipeDeck ref={deck} movies={queue} onSwipe={handleSwipe} onOpen={(m) => openTitle(m.id)} />
         ) : (
           <View style={styles.empty}>
             {error ? (
@@ -196,16 +207,18 @@ export default function CastingScreen() {
             ) : loading || !state.ready ? (
               <>
                 <ActivityIndicator color={colors.accent} size="large" />
-                <Text style={[styles.emptyText, { marginTop: 14 }]}>Підбираємо фільми…</Text>
+                <Text style={[styles.emptyText, { marginTop: 14 }]}>{content === 'tv' ? 'Підбираємо серіали…' : 'Підбираємо фільми…'}</Text>
               </>
             ) : (
               <>
                 <Text style={styles.emptyEmoji}>🎬</Text>
-                <Text style={styles.emptyTitle}>Фільми закінчились</Text>
+                <Text style={styles.emptyTitle}>{content === 'tv' ? 'Серіали закінчились' : 'Фільми закінчились'}</Text>
                 <Text style={styles.emptyText}>
                   {api.demo
-                    ? 'У демо-режимі лише 12 фільмів. Додайте безкоштовний ключ TMDB у Профілі, щоб відкрити всю базу.'
-                    : 'Під ці фільтри більше нічого немає. Спробуйте розширити пошук.'}
+                    ? 'У демо-режимі лише 12 фільмів (без серіалів). Додайте безкоштовний ключ TMDB у Профілі, щоб відкрити всю базу.'
+                    : content === 'tv' && tvMissingGenre(state.filters.genres)
+                      ? `У базі серіалів немає жанру «${tvMissingGenre(state.filters.genres)}». Приберіть його у фільтрах або увімкніть фільми.`
+                      : 'Під ці фільтри більше нічого немає. Спробуйте розширити пошук.'}
                 </Text>
                 <GradientButton title="Змінити фільтри" icon="options-outline" onPress={() => router.push('/filters')} style={{ marginTop: 20 }} />
               </>
@@ -237,12 +250,18 @@ export default function CastingScreen() {
   );
 }
 
-function ModeChip({ icon, label, active, onPress }: { icon: string; label: string; active?: boolean; onPress: () => void }) {
+function ModeChip({ icon, label, active, soft, onPress }: { icon: string; label: string; active?: boolean; soft?: boolean; onPress: () => void }) {
+  // soft — увімкнено разом з іншим варіантом (показуємо і фільми, і серіали): лише обведення
+  const filled = active && !soft;
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.modeChip, active && styles.modeChipActive, pressed && { opacity: 0.75 }]}>
-      {active ? <LinearGradient colors={gradients.brand} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]} /> : null}
+    <Pressable
+      onPress={onPress}
+      accessibilityState={{ selected: !!active }}
+      style={({ pressed }) => [styles.modeChip, filled && styles.modeChipActive, active && soft && styles.modeChipSoft, pressed && { opacity: 0.75 }]}
+    >
+      {filled ? <LinearGradient colors={gradients.brand} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]} /> : null}
       <Text style={styles.modeIcon}>{icon}</Text>
-      <Text style={[styles.modeText, active && { color: '#fff' }]}>{label}</Text>
+      <Text style={[styles.modeText, active && { color: filled ? '#fff' : colors.text }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -263,6 +282,8 @@ const styles = StyleSheet.create({
   modesRow: { paddingHorizontal: 14, gap: 8 },
   modeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
   modeChipActive: { borderColor: 'transparent' },
+  modeChipSoft: { borderColor: colors.accent + 'AA', backgroundColor: colors.accent + '1A' },
+  modeSep: { width: 1, height: 22, backgroundColor: colors.border, alignSelf: 'center', marginHorizontal: 2 },
   modeIcon: { fontSize: 15 },
   modeText: { color: colors.textDim, fontSize: 14, fontWeight: '800' },
   forYouHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, paddingHorizontal: 20, marginTop: 8 },

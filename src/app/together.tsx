@@ -7,12 +7,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SwipeDeck, SwipeDeckHandle } from '../components/SwipeDeck';
 import { GhostButton, GradientButton, Poster, RoundButton, Segmented, Toast } from '../components/ui';
 import { useCloud } from '../lib/cloud';
-import { goBack } from '../lib/nav';
+import { goBack, openTitle } from '../lib/nav';
+import { tvMissingGenre } from '../lib/genres';
 import { appendDeck, buildDeck, createRoom, fetchActivity, fetchRoom, joinRoom, leaveRoom, matchesOf, normalizeCode, Room, RoomMember, RoomSwipe, sendSwipe, undoSwipe } from '../lib/rooms';
 import { shareLink } from '../lib/share';
 import { useHaptics, useStore } from '../lib/store';
 import { year } from '../lib/tmdb';
-import { Filters, Movie, SwipeKind } from '../lib/types';
+import { ContentType, Filters, Movie, SwipeKind } from '../lib/types';
 import { colors, gradients, radius } from '../theme';
 
 const THIS_YEAR = new Date().getFullYear();
@@ -33,6 +34,11 @@ const ROOM_ERAS = [
   { id: 'new', label: 'Новинки', from: THIS_YEAR - 5, to: null },
   { id: 'modern', label: 'Після 2000', from: 2000, to: null },
   { id: 'classic', label: 'Класика', from: null, to: 1999 },
+];
+const ROOM_KINDS: { id: ContentType; label: string }[] = [
+  { id: 'movie', label: '🎬 Фільми' },
+  { id: 'tv', label: '📺 Серіали' },
+  { id: 'all', label: '🍿 Усе разом' },
 ];
 const POLL_MS = 3500;
 
@@ -60,6 +66,7 @@ export default function TogetherScreen() {
   const [celebrate, setCelebrate] = useState<Movie | null>(null);
   const [genre, setGenre] = useState<number | null>(null);
   const [era, setEra] = useState('any');
+  const [roomKind, setRoomKind] = useState<ContentType>('movie');
   const [joinCode, setJoinCode] = useState(typeof params.code === 'string' ? normalizeCode(params.code) : '');
   const deck = useRef<SwipeDeckHandle>(null);
   const seenMatches = useRef<Set<number> | null>(null);
@@ -196,11 +203,14 @@ export default function TogetherScreen() {
     setError(null);
     try {
       const e = ROOM_ERAS.find((x) => x.id === era)!;
-      const filters: Partial<Filters> = { genres: genre ? [genre] : [], yearFrom: e.from, yearTo: e.to };
+      const filters: Partial<Filters> = { genres: genre ? [genre] : [], yearFrom: e.from, yearTo: e.to, contentType: roomKind };
       const first = await buildDeck(api, filters, new Set(), 50);
-      if (!first.length) throw new Error('Під ці побажання не знайшлося фільмів');
+      if (!first.length) {
+        const missing = roomKind === 'tv' && genre ? tvMissingGenre([genre]) : null;
+        throw new Error(missing ? `У базі серіалів немає жанру «${missing}». Оберіть інший жанр або фільми.` : 'Під ці побажання нічого не знайшлося');
+      }
       const g = ROOM_GENRES.find((x) => x.id === genre)!;
-      const title = `${g.emoji} ${g.label} · ${e.label}`;
+      const title = `${g.emoji} ${g.label} · ${e.label}${roomKind === 'tv' ? ' · серіали' : roomKind === 'all' ? ' · фільми й серіали' : ''}`;
       const code = await createRoom(first, title, filters, me, userId);
       setRoomCode(code);
       haptic('success');
@@ -350,8 +360,15 @@ export default function TogetherScreen() {
 
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Створити кімнату</Text>
-            <Text style={styles.muted}>Що будемо дивитись? Колода з добрих фільмів (рейтинг 6+), однакова для всіх у кімнаті.</Text>
+            <Text style={styles.muted}>Що будемо дивитись? Колода з добрих фільмів чи серіалів (рейтинг 6+), однакова для всіх у кімнаті.</Text>
             <View style={styles.chips}>
+              {ROOM_KINDS.map((k) => (
+                <Pressable key={k.id} onPress={() => setRoomKind(k.id)} style={[styles.chip, roomKind === k.id && styles.chipOn]}>
+                  <Text style={[styles.chipText, roomKind === k.id && { color: colors.text }]}>{k.label}</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={[styles.chips, { marginTop: 4 }]}>
               {ROOM_GENRES.map((g) => (
                 <Pressable key={String(g.id)} onPress={() => setGenre(g.id)} style={[styles.chip, genre === g.id && styles.chipOn]}>
                   <Text style={[styles.chipText, genre === g.id && { color: colors.text }]}>
@@ -451,7 +468,7 @@ export default function TogetherScreen() {
         <>
           <View style={{ flex: 1, marginTop: 12 }}>
             {remaining.length ? (
-              <SwipeDeck ref={deck} movies={remaining} onSwipe={onSwipe} onOpen={(m) => router.push(`/movie/${m.id}`)} />
+              <SwipeDeck ref={deck} movies={remaining} onSwipe={onSwipe} onOpen={(m) => openTitle(m.id)} />
             ) : (
               <View style={styles.center}>
                 <ActivityIndicator color={colors.accent} />
@@ -482,7 +499,7 @@ export default function TogetherScreen() {
               ) : null}
               <View style={styles.grid}>
                 {matches.map((m) => (
-                  <Pressable key={m.id} style={{ width: cardW }} onPress={() => router.push(`/movie/${m.id}`)}>
+                  <Pressable key={m.id} style={{ width: cardW }} onPress={() => openTitle(m.id)}>
                     <Poster path={m.posterPath} title={m.title} size="w342" style={{ width: cardW, height: cardW * 1.5 }} />
                     <Text style={styles.gridTitle} numberOfLines={1}>
                       {m.title}
@@ -526,7 +543,7 @@ export default function TogetherScreen() {
               onPress={() => {
                 const m = celebrate;
                 setCelebrate(null);
-                router.push(`/movie/${m.id}`);
+                openTitle(m.id);
               }}
               style={{ flex: 1 }}
               tight

@@ -1,3 +1,7 @@
+/**
+ * Фільм або серіал. Серіали мають від’ємний id (−id з TMDB), бо номери фільмів і серіалів у TMDB перетинаються,
+ * а в бібліотеці вони живуть разом. Для серіалу releaseDate — дата першого показу, runtime — тривалість серії.
+ */
 export type Movie = {
   id: number;
   title: string;
@@ -63,7 +67,11 @@ export type Filters = {
   language: string | null; // original language ISO 639-1
   country: string | null; // origin country ISO 3166-1
   sortBy: SortBy;
+  /** що показувати в Кастингу */
+  contentType?: ContentType;
 };
+
+export type ContentType = 'movie' | 'tv' | 'all';
 
 export const DEFAULT_FILTERS: Filters = {
   genres: [],
@@ -77,6 +85,7 @@ export const DEFAULT_FILTERS: Filters = {
   language: null,
   country: null,
   sortBy: 'random',
+  contentType: 'all',
 };
 
 export type SwipeKind = 'like' | 'nope' | 'watched';
@@ -99,4 +108,54 @@ export type Settings = {
   castingMode?: 'all' | 'foryou';
   /** кімната «Кастингу удвох», у якій ви зараз */
   roomCode?: string | null;
+};
+
+/* ───────── Серіали ───────── */
+
+export type EpisodeRef = { season: number; episode: number; name: string; airDate: string | null };
+
+export type Season = { n: number; name: string; count: number; airDate: string | null; posterPath: string | null };
+
+export type Episode = { n: number; name: string; overview: string; airDate: string | null; runtime: number | null; stillPath: string | null; rating: number };
+
+export type ShowDetails = Movie & {
+  tagline: string;
+  lastAirDate: string | null;
+  status: string; // Returning Series | Ended | Canceled | In Production | Planned
+  seasonsCount: number;
+  episodesCount: number;
+  episodeRuntime: number | null;
+  seasons: Season[];
+  networks: string[];
+  creators: { id: number; name: string }[];
+  countries: string[];
+  cast: { id: number; name: string; character: string; profilePath: string | null; episodes: number }[];
+  trailerKey: string | null;
+  providers: WatchProviders | null;
+  similar: Movie[];
+  imdbId: string | null;
+  nextEpisode: EpisodeRef | null;
+  lastEpisode: EpisodeRef | null;
+};
+
+/** Кешовані дані про серіал для трекінгу (оновлюються раз на кілька годин). */
+export type ShowMeta = {
+  seasons: { n: number; count: number }[];
+  status: string;
+  next: EpisodeRef | null;
+  last: EpisodeRef | null;
+  runtime: number | null;
+  fetchedAt: number;
+};
+
+export type TrackStatus = 'watching' | 'planned' | 'completed' | 'dropped';
+
+export type TrackEntry = {
+  show: Movie; // id < 0
+  status: TrackStatus;
+  /** переглянуті серії: номер сезону → номери серій */
+  watched: Record<string, number[]>;
+  updatedAt: number;
+  lastWatchedAt?: number;
+  meta?: ShowMeta;
 };

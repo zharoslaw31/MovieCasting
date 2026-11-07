@@ -7,9 +7,10 @@ import { ActivityIndicator, Pressable, ScrollView, ScrollViewInstance, StyleShee
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GhostButton, GradientButton } from '../components/ui';
 import { genreName } from '../lib/genres';
-import { goBack } from '../lib/nav';
+import { goBack, openTitle } from '../lib/nav';
 import { useHaptics, useStore } from '../lib/store';
-import { buildTaste, IMG, tonightCandidates, TonightQuery, year } from '../lib/tmdb';
+import { effectiveStatus, epCode, nextToWatch } from '../lib/series';
+import { buildTaste, IMG, isTv, MediaKind, tonightCandidates, TonightQuery, year } from '../lib/tmdb';
 import { Movie } from '../lib/types';
 import { colors, gradients, radius } from '../theme';
 
@@ -26,6 +27,11 @@ const MOODS: Mood[] = [
   { id: 'kids', emoji: '👨‍👩‍👧', label: 'З дітьми', genres: [10751, 16], any: true, without: [27, 53, 80], minRating: 6.3 },
   { id: 'any', emoji: '🎲', label: 'Будь-що', genres: [] },
 ];
+const KINDS = [
+  { id: 'movie', label: '🎬 Фільм' },
+  { id: 'tv', label: '📺 Серіал' },
+  { id: 'any', label: 'Будь-що' },
+];
 const TIMES = [
   { id: 'short', label: 'До 1,5 год', max: 95 },
   { id: 'mid', label: 'До 2 год', max: 125 },
@@ -40,12 +46,13 @@ const ERAS = [
 
 type Pick = { movie: Movie; reason: string };
 
-/** «Що подивитись сьогодні»: настрій + час + епоха → 5 фільмів з вашого Обраного і з усієї бази. */
+/** «Що подивитись сьогодні»: фільм чи серіал + настрій + час + епоха → 5 варіантів з вашого Обраного і з усієї бази. */
 export default function TonightScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const { api, state, dispatch, isLiked, isWatched, isDisliked } = useStore();
   const haptic = useHaptics();
+  const [kind, setKind] = useState<string>('any');
   const [mood, setMood] = useState<string>('any');
   const [time, setTime] = useState<string>('any');
   const [era, setEra] = useState<string>('any');
@@ -58,12 +65,25 @@ export default function TonightScreen() {
   const cardTops = useRef<Record<number, number>>({});
   const taste = useMemo(() => buildTaste(state.liked, state.watched, state.disliked), [state.liked, state.watched, state.disliked]);
 
-  const query = (): TonightQuery => {
+  // серіали, які ви зараз дивитесь і в яких уже вийшла наступна серія
+  const continueShows = useMemo(
+    () =>
+      state.tracking
+        .filter((e) => effectiveStatus(e) === 'watching')
+        .map((e) => ({ e, next: nextToWatch(e) }))
+        .filter((x) => x.next?.aired)
+        .sort((a, b) => (b.e.lastWatchedAt ?? b.e.updatedAt) - (a.e.lastWatchedAt ?? a.e.updatedAt))
+        .slice(0, 8),
+    [state.tracking],
+  );
+
+  const query = (k: MediaKind): TonightQuery => {
     const m = MOODS.find((x) => x.id === mood)!;
     const t = TIMES.find((x) => x.id === time)!;
     const e = ERAS.find((x) => x.id === era)!;
-    return { genres: m.genres, anyGenre: !!m.any, without: m.without ?? [], runtimeMax: t.max, yearFrom: e.from, yearTo: e.to, minRating: m.minRating ?? 6.6 };
+    return { kind: k, genres: m.genres, anyGenre: !!m.any, without: m.without ?? [], runtimeMax: t.max, yearFrom: e.from, yearTo: e.to, minRating: m.minRating ?? (k === 'tv' ? 7 : 6.6) };
   };
+  const kindOk = (mv: Movie) => kind === 'any' || (kind === 'tv') === isTv(mv);
 
   const fits = (mv: Movie, q: TonightQuery) => {
     const y = Number(year(mv));
@@ -83,20 +103,44 @@ export default function TonightScreen() {
     setChosen(null);
     haptic('light');
     try {
-      const q = query();
+      const q = query('movie');
       // 1) з вашого Обраного — те, що ще не бачили і підходить під настрій
       const fromLiked: Pick[] = state.liked
-        .filter((e) => !isWatched(e.movie.id) && fits(e.movie, q))
+        .filter((e) => kindOk(e.movie) && !isWatched(e.movie.id) && !state.tracking.some((t) => t.show.id === e.movie.id && t.status !== 'planned') && fits(e.movie, q))
         .sort(() => Math.random() - 0.5)
         .slice(0, 6)
         .map((e) => ({ movie: e.movie, reason: '❤️ З вашого Обраного' }));
       // 2) з усієї бази — найкраще під ваш смак
-      const cands = (await tonightCandidates(api, q)).filter((mv) => !isWatched(mv.id) && !isDisliked(mv.id) && !isLiked(mv.id));
+      const kinds: MediaKind[] = kind === 'any' ? ['movie', 'tv'] : [kind as MediaKind];
+      const lists = await Promise.all(
+        kinds.map((k) =>
+          tonightCandidates(api, query(k))
+            .then((l) => l.filter((mv) => !isWatched(mv.id) && !isDisliked(mv.id) && !isLiked(mv.id) && !state.tracking.some((t) => t.show.id === mv.id)))
+            .catch((err) => {
+              if (kinds.length === 1) throw err;
+              return [] as Movie[];
+            }),
+        ),
+      );
       const hasTaste = Object.keys(taste.genres).length > 0;
-      const fromBase: Pick[] = cands
-        .map((mv) => ({ mv, s: mv.rating * 0.6 + tasteScore(mv) * 2.5 + Math.random() * 1.8 }))
-        .sort((a, b) => b.s - a.s)
-        .map(({ mv }) => ({
+      const ranked = lists.map((l) =>
+        l
+          .map((mv) => ({ mv, s: mv.rating * 0.6 + tasteScore(mv) * 2.5 + Math.random() * 1.8 }))
+          .sort((a, b) => b.s - a.s)
+          .map(({ mv }) => mv),
+      );
+      // «Будь-що»: фільми й серіали впереміш (приблизно 3 : 2)
+      const merged: Movie[] = [];
+      if (ranked.length === 2) {
+        const [mv, tv] = ranked;
+        const pattern = [0, 1, 0, 0, 1];
+        let i = 0;
+        while (mv.length || tv.length) {
+          const from = pattern[i++ % pattern.length] === 0 ? (mv.length ? mv : tv) : tv.length ? tv : mv;
+          merged.push(from.shift()!);
+        }
+      } else merged.push(...ranked[0]);
+      const fromBase: Pick[] = merged.map((mv) => ({
           movie: mv,
           reason: hasTaste && tasteScore(mv) > 0.35 ? '✨ Схоже на ваш смак' : mv.rating >= 7.8 ? `⭐ Високий рейтинг ${mv.rating.toFixed(1)}` : mv.votes > 8000 ? '🔥 Популярний вибір' : '🎬 Добрий вибір',
         }));
@@ -104,10 +148,10 @@ export default function TonightScreen() {
       const first = [...fromLiked.slice(0, 2), ...fromBase.slice(0, 5 - Math.min(2, fromLiked.length))];
       pool.current = [...fromLiked.slice(2), ...fromBase.slice(5 - Math.min(2, fromLiked.length))];
       setPicks(first);
-      if (!first.length) setError('Під ці побажання нічого не знайшлось. Спробуйте інший час чи епоху.');
+      if (!first.length) setError('Під ці побажання нічого не знайшлось. Спробуйте інший настрій чи епоху.');
       setTimeout(() => scroll.current?.scrollTo({ y: 0, animated: true }), 50);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Не вдалося підібрати фільми');
+      setError(e instanceof Error ? e.message : 'Не вдалося нічого підібрати');
     } finally {
       setLoading(false);
     }
@@ -150,9 +194,12 @@ export default function TonightScreen() {
   };
 
   const watchThis = (mv: Movie) => {
-    if (!isLiked(mv.id)) dispatch({ type: 'toggleLike', movie: mv });
+    // серіал — одразу в «Дивлюсь», щоб відмічати серії; фільм — в Обране
+    if (isTv(mv)) {
+      if (!state.tracking.some((t) => t.show.id === mv.id)) dispatch({ type: 'trackStatus', show: mv, status: 'watching' });
+    } else if (!isLiked(mv.id)) dispatch({ type: 'toggleLike', movie: mv });
     haptic('success');
-    router.push(`/movie/${mv.id}`);
+    openTitle(mv.id);
   };
 
   const cardW = Math.min(width, 640) - 32;
@@ -171,7 +218,33 @@ export default function TonightScreen() {
         <View style={{ width: '100%', maxWidth: 640 }}>
           {!picks ? (
             <>
-              <Text style={styles.lead}>Три швидкі питання — і ми запропонуємо 5 фільмів: з вашого Обраного та з усієї бази, з урахуванням вашого смаку.</Text>
+              {continueShows.length ? (
+                <>
+                  <Text style={[styles.q, { marginTop: 8 }]}>▶ Продовжити серіал</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingRight: 8 }} style={{ marginHorizontal: -16, paddingLeft: 16 }}>
+                    {continueShows.map(({ e, next }) => (
+                      <Pressable key={e.show.id} onPress={() => openTitle(e.show.id)} style={({ pressed }) => [styles.cont, pressed && { opacity: 0.85 }]}>
+                        <Image source={{ uri: IMG(e.show.backdropPath ?? e.show.posterPath, 'w500') ?? undefined }} style={StyleSheet.absoluteFill} contentFit="cover" />
+                        <LinearGradient colors={['transparent', 'rgba(10,10,18,0.92)']} style={StyleSheet.absoluteFill} />
+                        <View style={styles.contBody}>
+                          <Text style={styles.contTitle} numberOfLines={1}>
+                            {e.show.title}
+                          </Text>
+                          <Text style={styles.contEp} numberOfLines={1}>
+                            {epCode(next!.season, next!.episode)}
+                            {next!.name ? ` · ${next!.name}` : ''}
+                          </Text>
+                        </View>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
+                </>
+              ) : null}
+
+              <Text style={[styles.lead, continueShows.length ? { marginTop: 18 } : null]}>Кілька швидких питань — і ми запропонуємо 5 варіантів: з вашого Обраного та з усієї бази, з урахуванням вашого смаку.</Text>
+
+              <Text style={styles.q}>Фільм чи серіал?</Text>
+              <Options items={KINDS} value={kind} onChange={setKind} />
 
               <Text style={styles.q}>Який настрій?</Text>
               <View style={styles.moodGrid}>
@@ -187,7 +260,7 @@ export default function TonightScreen() {
                 })}
               </View>
 
-              <Text style={styles.q}>Скільки є часу?</Text>
+              <Text style={styles.q}>{kind === 'tv' ? 'Яка тривалість серії?' : 'Скільки є часу?'}</Text>
               <Options items={TIMES} value={time} onChange={setTime} />
 
               <Text style={styles.q}>Новинка чи перевірене часом?</Text>
@@ -203,7 +276,7 @@ export default function TonightScreen() {
                   onLayout={(e) => (cardTops.current[i] = e.nativeEvent.layout.y)}
                   style={[styles.card, { width: cardW }, chosen === i && styles.cardChosen]}
                 >
-                  <Pressable onPress={() => router.push(`/movie/${p.movie.id}`)}>
+                  <Pressable onPress={() => openTitle(p.movie.id)}>
                     <View style={{ height: cardW * 0.5 }}>
                       <Image source={{ uri: IMG(p.movie.backdropPath ?? p.movie.posterPath, 'w780') ?? undefined }} style={StyleSheet.absoluteFill} contentFit="cover" />
                       <LinearGradient colors={['transparent', 'rgba(18,18,29,0.95)']} style={StyleSheet.absoluteFill} />
@@ -212,7 +285,7 @@ export default function TonightScreen() {
                       </View>
                       {chosen === i ? (
                         <View style={styles.chosenBadge}>
-                          <Text style={styles.chosenText}>🎯 Ваш фільм на вечір</Text>
+                          <Text style={styles.chosenText}>🎯 {isTv(p.movie) ? 'Ваш серіал на вечір' : 'Ваш фільм на вечір'}</Text>
                         </View>
                       ) : null}
                     </View>
@@ -221,7 +294,7 @@ export default function TonightScreen() {
                         {p.movie.title}
                       </Text>
                       <Text style={styles.meta}>
-                        ★ {p.movie.rating ? p.movie.rating.toFixed(1) : '—'} · {year(p.movie)} · {p.movie.genreIds.slice(0, 3).map(genreName).join(', ')}
+                        {isTv(p.movie) ? '📺 Серіал · ' : ''}★ {p.movie.rating ? p.movie.rating.toFixed(1) : '—'} · {year(p.movie)} · {p.movie.genreIds.slice(0, 3).map(genreName).join(', ')}
                       </Text>
                       {p.movie.overview ? (
                         <Text style={styles.overview} numberOfLines={3}>
@@ -231,10 +304,10 @@ export default function TonightScreen() {
                     </View>
                   </Pressable>
                   <View style={styles.cardActions}>
-                    <Pressable onPress={() => replace(i)} style={[styles.smallBtn, styles.iconBtn]} disabled={!pool.current.length} accessibilityLabel="Інший фільм">
+                    <Pressable onPress={() => replace(i)} style={[styles.smallBtn, styles.iconBtn]} disabled={!pool.current.length} accessibilityLabel="Інший варіант">
                       <Ionicons name="refresh" size={18} color={pool.current.length ? colors.textDim : colors.textMuted} />
                     </Pressable>
-                    <Pressable onPress={() => router.push(`/movie/${p.movie.id}`)} style={styles.smallBtn}>
+                    <Pressable onPress={() => openTitle(p.movie.id)} style={styles.smallBtn}>
                       <Ionicons name="play-circle-outline" size={16} color={colors.textDim} />
                       <Text style={styles.smallText}>Трейлер</Text>
                     </Pressable>
@@ -254,7 +327,7 @@ export default function TonightScreen() {
             <GradientButton title="Обери за мене" icon="dice-outline" onPress={decideForMe} style={{ flex: 1.2 }} tight />
           </>
         ) : (
-          <GradientButton title={loading ? 'Підбираємо…' : 'Підібрати фільми'} icon="sparkles" onPress={loading ? undefined : find} style={{ flex: 1 }} />
+          <GradientButton title={loading ? 'Підбираємо…' : kind === 'tv' ? 'Підібрати серіали' : kind === 'movie' ? 'Підібрати фільми' : 'Підібрати'} icon="sparkles" onPress={loading ? undefined : find} style={{ flex: 1 }} />
         )}
       </View>
       {loading && picks ? (
@@ -312,5 +385,9 @@ const styles = StyleSheet.create({
   iconBtn: { width: 40, paddingHorizontal: 0, justifyContent: 'center' },
   smallText: { color: colors.textDim, fontWeight: '700', fontSize: 13 },
   footer: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', gap: 10, paddingHorizontal: 16, paddingTop: 12, backgroundColor: colors.bg + 'F2', borderTopWidth: 1, borderTopColor: colors.border },
+  cont: { width: 200, height: 112, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border },
+  contBody: { position: 'absolute', left: 10, right: 10, bottom: 8 },
+  contTitle: { color: '#fff', fontSize: 15, fontWeight: '900' },
+  contEp: { color: colors.accent, fontSize: 12, fontWeight: '800', marginTop: 2 },
   loading: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(10,10,18,0.6)', alignItems: 'center', justifyContent: 'center' },
 });

@@ -4,7 +4,7 @@ import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { GhostButton, GradientButton, Poster, RatingBadge } from '../../components/ui';
-import { goBack } from '../../lib/nav';
+import { goBack, openTitle } from '../../lib/nav';
 import { useStore } from '../../lib/store';
 import { person as loadPerson, year } from '../../lib/tmdb';
 import { Person } from '../../lib/types';
@@ -82,12 +82,17 @@ export default function PersonScreen() {
           </View>
         }
         renderItem={({ item }) => (
-          <Pressable style={{ width: cardW }} onPress={() => router.push(`/movie/${item.id}`)}>
+          <Pressable style={{ width: cardW }} onPress={() => openTitle(item.id)}>
             <View>
               <Poster path={item.posterPath} title={item.title} size="w342" style={{ width: cardW, height: cardW * 1.5 }} />
               <View style={styles.badge}>
                 <RatingBadge value={item.rating} />
               </View>
+              {item.id < 0 ? (
+                <View style={styles.tv}>
+                  <Text style={styles.tvText}>СЕРІАЛ</Text>
+                </View>
+              ) : null}
               {isLiked(item.id) || isWatched(item.id) ? (
                 <View style={styles.mark}>
                   <Ionicons name={isLiked(item.id) ? 'heart' : 'eye'} size={12} color="#fff" />
@@ -123,6 +128,8 @@ const styles = StyleSheet.create({
   more: { color: colors.accent, fontWeight: '800', fontSize: 13, marginTop: 4 },
   h: { color: colors.text, fontSize: 18, fontWeight: '800', marginTop: 22, marginBottom: 4 },
   badge: { position: 'absolute', top: 6, left: 6 },
+  tv: { position: 'absolute', bottom: 6, left: 6, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5, backgroundColor: 'rgba(77,163,255,0.92)' },
+  tvText: { color: '#fff', fontSize: 8.5, fontWeight: '900', letterSpacing: 0.4 },
   mark: { position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   title: { color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 6 },
   role: { color: colors.textMuted, fontSize: 11, marginTop: 1 },

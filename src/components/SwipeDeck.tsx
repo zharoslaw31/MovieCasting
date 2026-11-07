@@ -134,6 +134,11 @@ const Card = React.memo(function Card({ movie, onOpen }: { movie: Movie; onOpen?
             <Text style={styles.votesText}>{formatVotes(movie.votes)}</Text>
           </View>
         ) : null}
+        {movie.id < 0 ? (
+          <View style={styles.tvBadge}>
+            <Text style={styles.tvBadgeText}>📺 СЕРІАЛ</Text>
+          </View>
+        ) : null}
       </View>
       <View style={styles.info}>
         <Text style={styles.title} numberOfLines={2}>
@@ -181,6 +186,8 @@ const styles = StyleSheet.create({
     elevation: 10,
   },
   topRow: { position: 'absolute', top: 16, left: 16, right: 16, flexDirection: 'row', gap: 8 },
+  tvBadge: { marginLeft: 'auto', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 999, backgroundColor: 'rgba(77,163,255,0.9)' },
+  tvBadgeText: { color: '#fff', fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
   votes: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 8, paddingVertical: 4, borderRadius: radius.pill, backgroundColor: 'rgba(10,10,18,0.75)' },
   votesText: { color: colors.textDim, fontSize: 12, fontWeight: '700' },
   info: { position: 'absolute', left: 20, right: 20, bottom: 20 },

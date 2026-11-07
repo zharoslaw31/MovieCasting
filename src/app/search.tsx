@@ -5,13 +5,13 @@ import { ActivityIndicator, FlatList, Keyboard, Pressable, StyleSheet, Text, Tex
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Poster, RatingBadge } from '../components/ui';
 import { genreName } from '../lib/genres';
-import { goBack } from '../lib/nav';
+import { goBack, openTitle } from '../lib/nav';
 import { useHaptics, useStore } from '../lib/store';
 import { search, year } from '../lib/tmdb';
 import { Movie } from '../lib/types';
 import { colors, radius } from '../theme';
 
-/** Пошук будь-якого фільму в усій базі TMDB. */
+/** Пошук будь-якого фільму чи серіалу в усій базі TMDB. */
 export default function SearchScreen() {
   const insets = useSafeAreaInsets();
   const { api, dispatch, isLiked, isWatched } = useStore();
@@ -76,7 +76,7 @@ export default function SearchScreen() {
             value={q}
             onChangeText={setQ}
             autoFocus
-            placeholder="Назва фільму українською або англійською"
+            placeholder="Фільм або серіал — українською чи англійською"
             placeholderTextColor={colors.textMuted}
             returnKeyType="search"
             onSubmitEditing={() => Keyboard.dismiss()}
@@ -112,7 +112,7 @@ export default function SearchScreen() {
             ) : (
               <>
                 <Text style={styles.emptyEmoji}>🔎</Text>
-                <Text style={styles.emptyTitle}>Знайдіть будь-який фільм</Text>
+                <Text style={styles.emptyTitle}>Знайдіть будь-який фільм чи серіал</Text>
                 <Text style={styles.emptyText}>Додайте в обране те, що хочете подивитись, або позначте переглянуте й оцініть.</Text>
               </>
             )}
@@ -123,7 +123,7 @@ export default function SearchScreen() {
           const liked = isLiked(item.id);
           const watched = isWatched(item.id);
           return (
-            <Pressable onPress={() => router.push(`/movie/${item.id}`)} style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}>
+            <Pressable onPress={() => openTitle(item.id)} style={({ pressed }) => [styles.row, pressed && { opacity: 0.85 }]}>
               <Poster path={item.posterPath} size="w185" rounded={10} style={{ width: 60, height: 90 }} />
               <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.title} numberOfLines={2}>
@@ -132,8 +132,13 @@ export default function SearchScreen() {
                 <Text style={styles.meta} numberOfLines={1}>
                   {[year(item), item.originalTitle !== item.title ? item.originalTitle : null, genreName(item.genreIds[0] ?? 0) !== '—' ? genreName(item.genreIds[0]) : null].filter(Boolean).join(' · ')}
                 </Text>
-                <View style={{ flexDirection: 'row', marginTop: 6 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 }}>
                   <RatingBadge value={item.rating} style={{ backgroundColor: colors.card }} />
+                  {item.id < 0 ? (
+                    <View style={styles.tv}>
+                      <Text style={styles.tvText}>СЕРІАЛ</Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
               <View style={styles.actions}>
@@ -170,6 +175,8 @@ export default function SearchScreen() {
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
+  tv: { paddingHorizontal: 6, paddingVertical: 3, borderRadius: 6, backgroundColor: colors.watched + '26', borderWidth: 1, borderColor: colors.watched + '77' },
+  tvText: { color: colors.watched, fontSize: 10, fontWeight: '900', letterSpacing: 0.4 },
   header: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 12 },
   input: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, height: 46, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border },
   inputText: { flex: 1, color: colors.text, fontSize: 15, height: '100%' },

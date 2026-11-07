@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useIsFocused } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, useWindowDimensions, FlatList, Pressable, StyleSheet, Text, View, ListViewToken } from 'react-native';
+import { ActivityIndicator, useWindowDimensions, FlatList, Pressable, ScrollView, StyleSheet, Text, View, ListViewToken } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FeedPlayer, USES_FEED_PLAYER } from '../../components/FeedPlayer';
 import { TrailerPlayer } from '../../components/TrailerPlayer';
@@ -14,11 +14,13 @@ import { useHaptics, useStore } from '../../lib/store';
 import { createFeedPager, FeedKind, IMG, Pager, trailerKey, year } from '../../lib/tmdb';
 import { Movie } from '../../lib/types';
 import { colors, TAB_BAR_HEIGHT } from '../../theme';
+import { openTitle } from '../../lib/nav';
 
 type Item = { movie: Movie; key: string };
 
 const KINDS: { value: FeedKind; label: string }[] = [
   { value: 'mix', label: 'Мікс' },
+  { value: 'tv', label: 'Серіали' },
   { value: 'popular', label: 'Популярне' },
   { value: 'upcoming', label: 'Скоро' },
   { value: 'now_playing', label: 'У кіно' },
@@ -207,14 +209,14 @@ export default function TrailersScreen() {
         <FeedPlayer videoKey={items[active]?.key ?? null} top={layout.videoTop} height={layout.videoH} left={layout.videoLeft} width={layout.videoW} visible={!scrolling} playing={focused} />
       ) : null}
 
-      <View style={[styles.tabs, { top: insets.top + 8 }]} pointerEvents="box-none">
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={[styles.tabs, { top: insets.top + 8 }]} contentContainerStyle={styles.tabsRow}>
         {KINDS.map((k) => (
           <Pressable key={k.value} onPress={() => setKind(k.value)} hitSlop={8}>
             <Text style={[styles.tab, kind === k.value && styles.tabActive]}>{k.label}</Text>
             {kind === k.value ? <View style={styles.tabLine} /> : null}
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -276,7 +278,7 @@ const TrailerItem = React.memo(function TrailerItem({
 
       <View style={[styles.block, { top: textTop }]}>
         <View style={styles.maxW}>
-          <Pressable style={styles.head} onPress={() => router.push(`/movie/${movie.id}`)}>
+          <Pressable style={styles.head} onPress={() => openTitle(movie.id)}>
             {near ? <Poster path={movie.posterPath} size="w185" rounded={10} style={compact ? styles.thumbSmall : styles.thumb} /> : null}
             <View style={{ flex: 1, marginLeft: 12 }}>
               <Text style={[styles.title, compact && { fontSize: 20 }]} numberOfLines={2}>
@@ -287,7 +289,13 @@ const TrailerItem = React.memo(function TrailerItem({
                 <Text style={styles.meta}> {movie.rating ? movie.rating.toFixed(1) : '—'}</Text>
                 <Text style={styles.dot}>•</Text>
                 <Text style={styles.meta}>{year(movie)}</Text>
-                {movie.genreIds.slice(0, 2).map((g) => (
+                {movie.id < 0 ? (
+                  <>
+                    <Text style={styles.dot}>•</Text>
+                    <Text style={[styles.meta, { color: colors.watched }]}>Серіал</Text>
+                  </>
+                ) : null}
+                {movie.genreIds.slice(0, movie.id < 0 ? 1 : 2).map((g) => (
                   <React.Fragment key={g}>
                     <Text style={styles.dot}>•</Text>
                     <Text style={styles.meta}>{genreName(g)}</Text>
@@ -297,7 +305,7 @@ const TrailerItem = React.memo(function TrailerItem({
             </View>
           </Pressable>
           {movie.overview ? (
-            <Text style={styles.overview} numberOfLines={lines} onPress={() => router.push(`/movie/${movie.id}`)}>
+            <Text style={styles.overview} numberOfLines={lines} onPress={() => openTitle(movie.id)}>
               {movie.overview}
             </Text>
           ) : (
@@ -314,7 +322,7 @@ const TrailerItem = React.memo(function TrailerItem({
               icon={liked ? 'heart' : 'heart-outline'}
               color={liked ? colors.accent : '#fff'}
               active={liked}
-              label={liked ? 'В обраному' : 'Подобається'}
+              label={liked ? 'В обраному' : 'В обране'}
               onPress={() => {
                 dispatch({ type: 'toggleLike', movie });
                 haptic(liked ? 'light' : 'success');
@@ -333,7 +341,7 @@ const TrailerItem = React.memo(function TrailerItem({
                 if (!disliked) setTimeout(onNext, 250);
               }}
             />
-            <ActionButton compact={compact} icon="information-circle-outline" color="#fff" label="Детальніше" onPress={() => router.push(`/movie/${movie.id}`)} />
+            <ActionButton compact={compact} icon="information-circle-outline" color="#fff" label="Детальніше" onPress={() => openTitle(movie.id)} />
             <ActionButton compact={compact} icon="share-social-outline" color="#fff" label="Поділитись" onPress={() => shareMovie(movie)} />
           </View>
         </View>
@@ -376,7 +384,8 @@ const styles = StyleSheet.create({
   center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 30 },
   emptyEmoji: { fontSize: 48 },
   emptyText: { color: colors.textDim, fontSize: 15, textAlign: 'center', marginTop: 8 },
-  tabs: { position: 'absolute', left: 0, right: 0, flexDirection: 'row', justifyContent: 'center', gap: 16 },
+  tabs: { position: 'absolute', left: 0, right: 0, flexGrow: 0 },
+  tabsRow: { flexGrow: 1, justifyContent: 'center', gap: 16, paddingHorizontal: 16, paddingBottom: 4 },
   tab: { color: 'rgba(255,255,255,0.6)', fontSize: 15, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 6 },
   tabActive: { color: '#fff', fontWeight: '900' },
   tabLine: { height: 3, width: 22, borderRadius: 2, backgroundColor: colors.accent, alignSelf: 'center', marginTop: 5 },

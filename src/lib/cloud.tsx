@@ -46,7 +46,7 @@ type Row = { data: SyncData; updated_at: string };
 
 /** Чи є на пристрої зміни, зроблені після останньої синхронізації. */
 const changedSince = (d: SyncData, t: number) =>
-  [...d.liked, ...d.watched, ...d.disliked].some((e) => e.at > t) || d.history.some((h) => h.at > t);
+  [...d.liked, ...d.watched, ...d.disliked].some((e) => e.at > t) || d.history.some((h) => h.at > t) || (d.tracking ?? []).some((e) => e.updatedAt > t);
 
 async function pull(userId: string): Promise<Row | null> {
   const { data, error } = await supabase!.from('libraries').select('data, updated_at').eq('user_id', userId).maybeSingle();

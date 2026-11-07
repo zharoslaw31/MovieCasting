@@ -5,14 +5,15 @@ import { router, useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, Linking, Pressable, ScrollView, ScrollViewInstance, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { CastRow, Info, InfoGrid, Providers, Score, SimilarRow } from '../../components/DetailParts';
 import { TrailerPlayer } from '../../components/TrailerPlayer';
 import { GhostButton, GradientButton, Poster, Toast } from '../../components/ui';
 import { genreName, languageName } from '../../lib/genres';
-import { goBack } from '../../lib/nav';
+import { goBack, openTitle } from '../../lib/nav';
 import { shareMovie } from '../../lib/share';
 import { useHaptics, useStore } from '../../lib/store';
-import { details, formatRuntime, IMG, year } from '../../lib/tmdb';
-import { Movie, MovieDetails, Provider } from '../../lib/types';
+import { details, formatRuntime, IMG, toMovie, year } from '../../lib/tmdb';
+import { Movie, MovieDetails } from '../../lib/types';
 import { colors, gradients, radius } from '../../theme';
 
 export default function MovieScreen() {
@@ -81,7 +82,7 @@ export default function MovieScreen() {
     );
   }
 
-  const full: Movie = m ?? movie;
+  const full: Movie = toMovie(m ?? movie);
   const facts = [year(movie), formatRuntime(m?.runtime ?? movie.runtime), languageName(movie.language)].filter(Boolean);
 
   const share = async () => {
@@ -176,79 +177,19 @@ export default function MovieScreen() {
             </View>
           ) : null}
 
-          {m?.providers ? (
-            <>
-              <Text style={styles.h}>Де подивитись в Україні</Text>
-              <ProviderRow label="Підписка" list={m.providers.stream} />
-              <ProviderRow label="Оренда" list={m.providers.rent} />
-              <ProviderRow label="Купівля" list={m.providers.buy} />
-              {m.providers.link ? (
-                <Pressable onPress={() => Linking.openURL(m.providers!.link!)} style={styles.moreLink}>
-                  <Text style={styles.link}>Усі варіанти перегляду</Text>
-                  <Ionicons name="open-outline" size={14} color={colors.accent} />
-                </Pressable>
-              ) : null}
-            </>
-          ) : null}
+          {m ? <Providers providers={m.providers} /> : null}
 
           {m?.director || m?.countries.length ? (
-            <View style={styles.infoGrid}>
-              {m?.director ? (
-                <Pressable style={styles.info} disabled={!m.directorId} onPress={() => m.directorId && router.push(`/person/${m.directorId}`)}>
-                  <Text style={styles.infoLabel}>Режисер</Text>
-                  <Text style={[styles.infoValue, !!m.directorId && { color: colors.accent }]} numberOfLines={2}>
-                    {m.director}
-                  </Text>
-                </Pressable>
-              ) : null}
+            <InfoGrid>
+              {m?.director ? <Info label="Режисер" value={m.director} onPress={m.directorId ? () => router.push(`/person/${m.directorId}`) : undefined} /> : null}
               {m?.countries.length ? <Info label="Країна" value={m.countries.slice(0, 2).join(', ')} /> : null}
               {m?.budget ? <Info label="Бюджет" value={`$${(m.budget / 1e6).toFixed(0)} млн`} /> : null}
               {m?.revenue ? <Info label="Збори" value={`$${(m.revenue / 1e6).toFixed(0)} млн`} /> : null}
-            </View>
+            </InfoGrid>
           ) : null}
 
-          {m?.cast.length ? (
-            <>
-              <Text style={styles.h}>У ролях</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 12 }}>
-                {m.cast.map((c) => (
-                  <Pressable key={c.id} style={{ width: 82 }} onPress={() => router.push(`/person/${c.id}`)}>
-                    <Poster path={c.profilePath} size="w185" rounded={41} style={{ width: 82, height: 82 }} />
-                    <Text style={styles.castName} numberOfLines={2}>
-                      {c.name}
-                    </Text>
-                    <Text style={styles.castRole} numberOfLines={1}>
-                      {c.character}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </>
-          ) : null}
-
-          {m?.similar.length ? (
-            <>
-              <Text style={styles.h}>Схожі фільми</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-                {m.similar.map((s) => (
-                  <Pressable key={s.id} style={{ width: 112 }} onPress={() => router.push(`/movie/${s.id}`)}>
-                    <Poster path={s.posterPath} title={s.title} size="w342" style={{ width: 112, height: 168 }} />
-                    {isLiked(s.id) || isWatched(s.id) ? (
-                      <View style={styles.simMark}>
-                        <Ionicons name={isLiked(s.id) ? 'heart' : 'eye'} size={12} color="#fff" />
-                      </View>
-                    ) : null}
-                    <Text style={styles.castName} numberOfLines={2}>
-                      {s.title}
-                    </Text>
-                    <Text style={styles.castRole}>
-                      {year(s)} · ★ {s.rating ? s.rating.toFixed(1) : '—'}
-                    </Text>
-                  </Pressable>
-                ))}
-              </ScrollView>
-            </>
-          ) : null}
+          {m ? <CastRow cast={m.cast} /> : null}
+          {m ? <SimilarRow title="Схожі фільми" items={m.similar} mark={(sid) => (isLiked(sid) ? 'heart' : isWatched(sid) ? 'eye' : null)} /> : null}
         </View>
       </ScrollView>
 
@@ -325,50 +266,6 @@ export default function MovieScreen() {
   );
 }
 
-function ProviderRow({ label, list }: { label: string; list: Provider[] }) {
-  if (!list.length) return null;
-  return (
-    <View style={styles.provRow}>
-      <Text style={styles.provLabel}>{label}</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-        {list.map((p) => (
-          <View key={p.id} style={styles.prov}>
-            {p.logoPath ? <Image source={{ uri: IMG(p.logoPath, 'w92') ?? undefined }} style={styles.provLogo} /> : null}
-            <Text style={styles.provName} numberOfLines={1}>
-              {p.name}
-            </Text>
-          </View>
-        ))}
-      </ScrollView>
-    </View>
-  );
-}
-
-function Score({ label, value, sub, color }: { label: string; value: string; sub: string; color: string }) {
-  return (
-    <View style={styles.score}>
-      <Text style={[styles.scoreLabel, { color }]}>{label}</Text>
-      <Text style={styles.scoreValue} numberOfLines={1}>
-        {value}
-      </Text>
-      <Text style={styles.scoreSub} numberOfLines={1}>
-        {sub}
-      </Text>
-    </View>
-  );
-}
-
-function Info({ label, value }: { label: string; value: string }) {
-  return (
-    <View style={styles.info}>
-      <Text style={styles.infoLabel}>{label}</Text>
-      <Text style={styles.infoValue} numberOfLines={2}>
-        {value}
-      </Text>
-    </View>
-  );
-}
-
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.bg },
   center: { alignItems: 'center', justifyContent: 'center' },
@@ -385,10 +282,6 @@ const styles = StyleSheet.create({
   facts: { color: colors.textMuted, fontSize: 13, fontWeight: '700', marginTop: 6 },
   tagline: { color: colors.textDim, fontStyle: 'italic', fontSize: 15, marginTop: 16 },
   scores: { flexDirection: 'row', gap: 10, marginTop: 18 },
-  score: { flex: 1, backgroundColor: colors.bgElevated, borderRadius: radius.md, padding: 12, borderWidth: 1, borderColor: colors.border },
-  scoreLabel: { fontSize: 12, fontWeight: '900', letterSpacing: 0.5 },
-  scoreValue: { color: colors.text, fontSize: 18, fontWeight: '900', marginTop: 4 },
-  scoreSub: { color: colors.textMuted, fontSize: 11, marginTop: 2 },
   genres: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 16 },
   genre: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill, backgroundColor: colors.accent + '1F', borderWidth: 1, borderColor: colors.accent + '55' },
   genreText: { color: colors.text, fontSize: 13, fontWeight: '700' },
@@ -396,20 +289,6 @@ const styles = StyleSheet.create({
   rateBox: { marginTop: 8 },
   stars: { flexDirection: 'row', flexWrap: 'wrap', gap: 4 },
   h: { color: colors.text, fontSize: 18, fontWeight: '800', marginTop: 24, marginBottom: 12 },
-  provRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  provLabel: { color: colors.textMuted, fontSize: 12, fontWeight: '800', width: 70 },
-  prov: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingRight: 12, paddingLeft: 4, height: 40, borderRadius: radius.md, backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border, maxWidth: 180 },
-  provLogo: { width: 30, height: 30, borderRadius: 8 },
-  provName: { color: colors.text, fontSize: 13, fontWeight: '700' },
-  moreLink: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 2 },
-  link: { color: colors.accent, fontWeight: '800', fontSize: 14 },
-  infoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 20 },
-  info: { width: '48%', flexGrow: 1, backgroundColor: colors.bgElevated, borderRadius: radius.md, padding: 12, borderWidth: 1, borderColor: colors.border },
-  infoLabel: { color: colors.textMuted, fontSize: 11, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.8 },
-  infoValue: { color: colors.text, fontSize: 14, fontWeight: '700', marginTop: 4 },
-  castName: { color: colors.text, fontSize: 12, fontWeight: '700', marginTop: 6, textAlign: 'center' },
-  castRole: { color: colors.textMuted, fontSize: 11, textAlign: 'center' },
-  simMark: { position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center' },
   header: { position: 'absolute', top: 0, left: 0, right: 0, backgroundColor: colors.bg + 'F5', borderBottomWidth: 1, borderBottomColor: colors.border, justifyContent: 'center', paddingLeft: 66, paddingRight: 110 },
   headerTitle: { color: colors.text, fontSize: 16, fontWeight: '800' },
   circle: { width: 40, height: 40, borderRadius: 20, backgroundColor: 'rgba(10,10,18,0.6)', alignItems: 'center', justifyContent: 'center' },

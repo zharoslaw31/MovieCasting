@@ -3,12 +3,15 @@ import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { ShowsLibrary } from '../../components/ShowsLibrary';
 import { Chip, GhostButton, GradientButton, Poster, RatingBadge, Segmented } from '../../components/ui';
 import { genreEmoji, genreName } from '../../lib/genres';
 import { ListName, useHaptics, useStore } from '../../lib/store';
 import { year } from '../../lib/tmdb';
 import { LibraryEntry } from '../../lib/types';
 import { colors, gradients, radius, TAB_BAR_HEIGHT } from '../../theme';
+import { openTitle } from '../../lib/nav';
+import { hasNewEpisode, plural as pluralize } from '../../lib/series';
 
 type Sort = 'recent' | 'rating' | 'mine' | 'year' | 'title';
 const SORTS: { value: Sort; label: string }[] = [
@@ -19,6 +22,8 @@ const SORTS: { value: Sort; label: string }[] = [
   { value: 'title', label: 'А–Я' },
 ];
 type View_ = 'grid' | 'list';
+type Tab = ListName | 'tv';
+type Kind = 'all' | 'movie' | 'tv';
 type Undo = { entries: LibraryEntry[]; list: ListName; text: string } | null;
 
 export default function LibraryScreen() {
@@ -26,7 +31,8 @@ export default function LibraryScreen() {
   const { width } = useWindowDimensions();
   const { state, dispatch, isWatched, isLiked } = useStore();
   const haptic = useHaptics();
-  const [tab, setTab] = useState<ListName>('liked');
+  const [tab, setTab] = useState<Tab>('liked');
+  const [kind, setKind] = useState<Kind>('all');
   const [sort, setSort] = useState<Sort>('recent');
   const [query, setQuery] = useState('');
   const [genre, setGenre] = useState<number | null>(null);
@@ -49,7 +55,18 @@ export default function LibraryScreen() {
     setGenre(null);
   }, [tab]);
 
-  const source = state[tab];
+  const list: ListName = tab === 'tv' ? 'liked' : tab;
+  const all = tab === 'tv' ? [] : state[tab];
+  const hasBothKinds = all.some((e) => e.movie.id < 0) && all.some((e) => e.movie.id > 0);
+  const source = useMemo(() => (kind === 'all' || !hasBothKinds ? all : all.filter((e) => (kind === 'tv') === e.movie.id < 0)), [all, kind, hasBothKinds]);
+
+  // скільки серіалів у вкладці «Серіали»
+  const showsCount = useMemo(() => {
+    const ids = new Set(state.tracking.map((e) => e.show.id));
+    [...state.liked, ...state.watched].forEach((e) => e.movie.id < 0 && ids.add(e.movie.id));
+    return ids.size;
+  }, [state.tracking, state.liked, state.watched]);
+  const freshShows = state.tracking.filter(hasNewEpisode).length;
 
   const genresHere = useMemo(() => {
     const count = new Map<number, number>();
@@ -72,6 +89,8 @@ export default function LibraryScreen() {
     };
     return list.sort(by[sort]);
   }, [source, tab, query, genre, sort, hideWatched, isWatched]);
+  const moviesN = data.filter((e) => e.movie.id > 0).length;
+  const showsN = data.length - moviesN;
 
   const showUndo = (u: NonNullable<Undo>) => {
     if (undoTimer.current) clearTimeout(undoTimer.current);
@@ -81,12 +100,12 @@ export default function LibraryScreen() {
 
   const removeEntries = (entries: LibraryEntry[]) => {
     if (!entries.length) return;
-    dispatch({ type: 'removeMany', ids: entries.map((e) => e.movie.id), list: tab });
+    dispatch({ type: 'removeMany', ids: entries.map((e) => e.movie.id), list });
     haptic('warning');
     showUndo({
       entries,
-      list: tab,
-      text: entries.length === 1 ? `«${entries[0].movie.title}» видалено` : `Видалено фільмів: ${entries.length}`,
+      list,
+      text: entries.length === 1 ? `«${entries[0].movie.title}» видалено` : `Видалено: ${entries.length}`,
     });
   };
 
@@ -110,13 +129,13 @@ export default function LibraryScreen() {
     const pool = state.liked.filter((e) => !isWatched(e.movie.id));
     if (!pool.length) return;
     haptic('light');
-    router.push(`/movie/${pool[Math.floor(Math.random() * pool.length)].movie.id}`);
+    openTitle(pool[Math.floor(Math.random() * pool.length)].movie.id);
   };
 
-  const hours = Math.round(source.reduce((s, e) => s + (e.movie.runtime || 110), 0) / 60);
+  const hours = Math.round(source.filter((e) => e.movie.id > 0).reduce((s, e) => s + (e.movie.runtime || 110), 0) / 60);
   const unwatchedLiked = state.liked.filter((e) => !isWatched(e.movie.id)).length;
 
-  const onPressItem = (e: LibraryEntry) => (selecting ? toggleSelect(e.movie.id) : router.push(`/movie/${e.movie.id}`));
+  const onPressItem = (e: LibraryEntry) => (selecting ? toggleSelect(e.movie.id) : openTitle(e.movie.id));
   const onLongItem = (e: LibraryEntry) => {
     haptic('light');
     setSelecting(true);
@@ -129,11 +148,15 @@ export default function LibraryScreen() {
       <View style={styles.header}>
         <Text style={[styles.title, width < 380 && { fontSize: 24 }]}>Бібліотека</Text>
         <View style={styles.headerBtns}>
-          {!selecting && unwatchedLiked > 0 ? <IconBtn icon="dice-outline" label="Випадковий фільм" onPress={pickRandom} /> : null}
-          <IconBtn icon={view === 'grid' ? 'list' : 'grid-outline'} label="Вигляд" onPress={() => setView((v) => (v === 'grid' ? 'list' : 'grid'))} />
-          <Pressable onPress={() => (selecting ? exitSelect() : setSelecting(true))} style={[styles.selectBtn, selecting && { backgroundColor: colors.accent }]} disabled={!source.length}>
-            <Text style={[styles.selectText, !source.length && { opacity: 0.4 }]}>{selecting ? 'Готово' : 'Вибрати'}</Text>
-          </Pressable>
+          {!selecting && unwatchedLiked > 0 && tab !== 'tv' ? <IconBtn icon="dice-outline" label="Випадковий вибір з Обраного" onPress={pickRandom} /> : null}
+          {tab !== 'tv' ? (
+            <>
+              <IconBtn icon={view === 'grid' ? 'list' : 'grid-outline'} label="Вигляд" onPress={() => setView((v) => (v === 'grid' ? 'list' : 'grid'))} />
+              <Pressable onPress={() => (selecting ? exitSelect() : setSelecting(true))} style={[styles.selectBtn, selecting && { backgroundColor: colors.accent }]} disabled={!source.length}>
+                <Text style={[styles.selectText, !source.length && { opacity: 0.4 }]}>{selecting ? 'Готово' : 'Вибрати'}</Text>
+              </Pressable>
+            </>
+          ) : null}
         </View>
       </View>
 
@@ -141,15 +164,17 @@ export default function LibraryScreen() {
         <Segmented
           value={tab}
           onChange={setTab}
+          compact
           options={[
-            { value: 'liked', label: '❤️ Обране', count: state.liked.length },
-            { value: 'watched', label: '👁 Бачив', count: state.watched.length },
-            { value: 'disliked', label: '✕ Ні', count: state.disliked.length },
+            { value: 'liked', label: width < 400 ? 'Обране' : '❤️ Обране', count: state.liked.length },
+            { value: 'watched', label: width < 400 ? 'Бачив' : '👁 Бачив', count: state.watched.length },
+            { value: 'tv', label: width < 400 ? 'Серіали' : '📺 Серіали', count: freshShows ? undefined : showsCount, dot: freshShows > 0 },
+            { value: 'disliked', label: '✕', count: state.disliked.length },
           ]}
         />
         <View style={styles.searchRow}>
           <Ionicons name="search" size={18} color={colors.textMuted} />
-          <TextInput value={query} onChangeText={setQuery} placeholder="Пошук у бібліотеці" placeholderTextColor={colors.textMuted} style={styles.search} />
+          <TextInput value={query} onChangeText={setQuery} placeholder={tab === 'tv' ? 'Пошук серед серіалів' : 'Пошук у бібліотеці'} placeholderTextColor={colors.textMuted} style={styles.search} />
           {query ? (
             <Pressable onPress={() => setQuery('')} hitSlop={8}>
               <Ionicons name="close-circle" size={18} color={colors.textMuted} />
@@ -158,179 +183,193 @@ export default function LibraryScreen() {
         </View>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsRow}>
-        {SORTS.filter((s) => s.value !== 'mine' || tab === 'watched').map((s) => (
-          <Chip key={s.value} label={s.label} active={sort === s.value} onPress={() => setSort(s.value)} />
-        ))}
-        {tab === 'liked' ? <Chip label="Без переглянутих" icon="🙈" active={hideWatched} onPress={() => setHideWatched((v) => !v)} /> : null}
-      </ScrollView>
-      {genresHere.length > 1 ? (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsRow}>
-          <Chip label="Усі жанри" active={!genre} onPress={() => setGenre(null)} />
-          {genresHere.map((g) => (
-            <Chip key={g} label={genreName(g)} icon={genreEmoji(g)} active={genre === g} onPress={() => setGenre(genre === g ? null : g)} />
-          ))}
-        </ScrollView>
-      ) : null}
+      {tab === 'tv' ? (
+        <ShowsLibrary query={query} bottomPad={bottomPad} />
+      ) : (
+        <>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsRow}>
+            {hasBothKinds ? (
+              <>
+                <Chip label="🎬 Фільми" active={kind === 'movie'} onPress={() => setKind(kind === 'movie' ? 'all' : 'movie')} />
+                <Chip label="📺 Серіали" active={kind === 'tv'} onPress={() => setKind(kind === 'tv' ? 'all' : 'tv')} />
+                <View style={styles.chipSep} />
+              </>
+            ) : null}
+            {SORTS.filter((s) => s.value !== 'mine' || tab === 'watched').map((s) => (
+              <Chip key={s.value} label={s.label} active={sort === s.value} onPress={() => setSort(s.value)} />
+            ))}
+            {tab === 'liked' ? <Chip label="Без переглянутих" icon="🙈" active={hideWatched} onPress={() => setHideWatched((v) => !v)} /> : null}
+          </ScrollView>
+          {genresHere.length > 1 ? (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipsScroll} contentContainerStyle={styles.chipsRow}>
+              <Chip label="Усі жанри" active={!genre} onPress={() => setGenre(null)} />
+              {genresHere.map((g) => (
+                <Chip key={g} label={genreName(g)} icon={genreEmoji(g)} active={genre === g} onPress={() => setGenre(genre === g ? null : g)} />
+              ))}
+            </ScrollView>
+          ) : null}
 
-      <Text style={styles.summary}>
-        {selecting ? `Вибрано: ${selected.size}` : `${data.length} ${plural(data.length)}${source.length ? ` · ≈${hours} год кіно` : ''}`}
-        {!selecting && source.length ? '  ·  утримуйте, щоб вибрати кілька' : ''}
-      </Text>
+          <Text style={styles.summary}>
+            {selecting
+              ? `Вибрано: ${selected.size}`
+              : [moviesN || !showsN ? pluralize(moviesN, 'фільм', 'фільми', 'фільмів') : null, showsN ? pluralize(showsN, 'серіал', 'серіали', 'серіалів') : null, hours ? `≈${hours} год кіно` : null].filter(Boolean).join(' · ')}
+            {!selecting && source.length ? '  ·  утримуйте, щоб вибрати кілька' : ''}
+          </Text>
 
-      <FlatList
-        key={`${view}-${cols}`}
-        data={data}
-        numColumns={view === 'grid' ? cols : 1}
-        keyExtractor={(e) => String(e.movie.id)}
-        columnWrapperStyle={view === 'grid' ? { gap } : undefined}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomPad + (selecting ? 80 : 20), gap }}
-        ListEmptyComponent={<Empty tab={tab} filtered={!!query || !!genre || hideWatched} query={query} />}
-        renderItem={({ item }) => {
-          const sel = selected.has(item.movie.id);
-          if (view === 'list') {
-            return (
-              <Pressable onPress={() => onPressItem(item)} onLongPress={() => onLongItem(item)} style={({ pressed }) => [styles.row, sel && styles.rowSelected, pressed && { opacity: 0.85 }]}>
-                <Poster path={item.movie.posterPath} size="w185" rounded={10} style={{ width: 64, height: 96 }} />
-                <View style={{ flex: 1, marginLeft: 12 }}>
-                  <Text style={styles.rowTitle} numberOfLines={1}>
+          <FlatList
+            key={`${view}-${cols}`}
+            data={data}
+            numColumns={view === 'grid' ? cols : 1}
+            keyExtractor={(e) => String(e.movie.id)}
+            columnWrapperStyle={view === 'grid' ? { gap } : undefined}
+            contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomPad + (selecting ? 80 : 20), gap }}
+            ListEmptyComponent={<Empty tab={list} filtered={!!query || !!genre || hideWatched || kind !== 'all'} query={query} />}
+            renderItem={({ item }) => {
+              const sel = selected.has(item.movie.id);
+              if (view === 'list') {
+                return (
+                  <Pressable onPress={() => onPressItem(item)} onLongPress={() => onLongItem(item)} style={({ pressed }) => [styles.row, sel && styles.rowSelected, pressed && { opacity: 0.85 }]}>
+                    <Poster path={item.movie.posterPath} size="w185" rounded={10} style={{ width: 64, height: 96 }} />
+                    <View style={{ flex: 1, marginLeft: 12 }}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>
+                        {item.movie.title}
+                      </Text>
+                      <Text style={styles.rowMeta} numberOfLines={1}>
+                        {item.movie.id < 0 ? '📺 Серіал · ' : ''}
+                        {year(item.movie)} · {item.movie.genreIds.slice(0, 2).map(genreName).join(', ')}
+                      </Text>
+                      <View style={styles.rowBadges}>
+                        <RatingBadge value={item.movie.rating} style={{ backgroundColor: colors.card }} />
+                        {item.myRating ? <Text style={styles.mine}>моя {item.myRating}/10</Text> : null}
+                        {tab === 'liked' && isWatched(item.movie.id) ? <Ionicons name="eye" size={14} color={colors.watched} /> : null}
+                      </View>
+                      {item.movie.overview ? (
+                        <Text style={styles.rowOverview} numberOfLines={2}>
+                          {item.movie.overview}
+                        </Text>
+                      ) : null}
+                    </View>
+                    {selecting ? (
+                      <Check on={sel} />
+                    ) : (
+                      <View style={styles.rowActions}>
+                        {tab === 'liked' ? (
+                          <RowAction
+                            icon={isWatched(item.movie.id) ? 'eye' : 'eye-outline'}
+                            color={isWatched(item.movie.id) ? colors.watched : colors.textDim}
+                            onPress={() => dispatch({ type: 'toggleWatched', movie: item.movie })}
+                          />
+                        ) : tab === 'disliked' ? (
+                          <RowAction icon="heart-outline" color={colors.accent} onPress={() => dispatch({ type: 'likeMany', movies: [item.movie] })} />
+                        ) : (
+                          <RowAction
+                            icon={isLiked(item.movie.id) ? 'heart' : 'heart-outline'}
+                            color={isLiked(item.movie.id) ? colors.accent : colors.textDim}
+                            onPress={() => dispatch({ type: 'toggleLike', movie: item.movie })}
+                          />
+                        )}
+                        <RowAction icon="trash-outline" color={colors.nope} onPress={() => removeEntries([item])} />
+                      </View>
+                    )}
+                  </Pressable>
+                );
+              }
+              return (
+                <Pressable style={({ pressed }) => [{ width: cardW, opacity: pressed ? 0.8 : 1 }]} onPress={() => onPressItem(item)} onLongPress={() => onLongItem(item)}>
+                  <View>
+                    <Poster path={item.movie.posterPath} title={item.movie.title} size="w342" style={[{ width: cardW, height: cardW * 1.5 }, sel && { borderWidth: 3, borderColor: colors.accent }]} />
+                    <View style={styles.cardBadges}>
+                      <RatingBadge value={item.movie.rating} />
+                    </View>
+                    {selecting ? (
+                      <View style={styles.cardCheck}>
+                        <Check on={sel} />
+                      </View>
+                    ) : (
+                      <Pressable onPress={() => removeEntries([item])} hitSlop={8} style={styles.cardDelete} accessibilityLabel="Видалити">
+                        <Ionicons name="close" size={14} color="#fff" />
+                      </Pressable>
+                    )}
+                    {item.movie.id < 0 ? (
+                      <View style={styles.tvMark}>
+                        <Text style={styles.tvMarkText}>СЕРІАЛ</Text>
+                      </View>
+                    ) : null}
+                    {tab === 'liked' && isWatched(item.movie.id) ? (
+                      <View style={styles.watchedMark}>
+                        <Ionicons name="eye" size={11} color="#fff" />
+                      </View>
+                    ) : null}
+                  </View>
+                  <Text style={styles.cardTitle} numberOfLines={1}>
                     {item.movie.title}
                   </Text>
-                  <Text style={styles.rowMeta} numberOfLines={1}>
-                    {year(item.movie)} · {item.movie.genreIds.slice(0, 2).map(genreName).join(', ')}
+                  <Text style={styles.cardMeta}>
+                    {year(item.movie)}
+                    {item.myRating ? `  ·  ★ ${item.myRating}` : ''}
                   </Text>
-                  <View style={styles.rowBadges}>
-                    <RatingBadge value={item.movie.rating} style={{ backgroundColor: colors.card }} />
-                    {item.myRating ? <Text style={styles.mine}>моя {item.myRating}/10</Text> : null}
-                    {tab === 'liked' && isWatched(item.movie.id) ? <Ionicons name="eye" size={14} color={colors.watched} /> : null}
-                  </View>
-                  {item.movie.overview ? (
-                    <Text style={styles.rowOverview} numberOfLines={2}>
-                      {item.movie.overview}
-                    </Text>
-                  ) : null}
-                </View>
-                {selecting ? (
-                  <Check on={sel} />
-                ) : (
-                  <View style={styles.rowActions}>
-                    {tab === 'liked' ? (
-                      <RowAction
-                        icon={isWatched(item.movie.id) ? 'eye' : 'eye-outline'}
-                        color={isWatched(item.movie.id) ? colors.watched : colors.textDim}
-                        onPress={() => dispatch({ type: 'toggleWatched', movie: item.movie })}
-                      />
-                    ) : tab === 'disliked' ? (
-                      <RowAction icon="heart-outline" color={colors.accent} onPress={() => dispatch({ type: 'likeMany', movies: [item.movie] })} />
-                    ) : (
-                      <RowAction
-                        icon={isLiked(item.movie.id) ? 'heart' : 'heart-outline'}
-                        color={isLiked(item.movie.id) ? colors.accent : colors.textDim}
-                        onPress={() => dispatch({ type: 'toggleLike', movie: item.movie })}
-                      />
-                    )}
-                    <RowAction icon="trash-outline" color={colors.nope} onPress={() => removeEntries([item])} />
-                  </View>
-                )}
-              </Pressable>
-            );
-          }
-          return (
-            <Pressable style={({ pressed }) => [{ width: cardW, opacity: pressed ? 0.8 : 1 }]} onPress={() => onPressItem(item)} onLongPress={() => onLongItem(item)}>
-              <View>
-                <Poster path={item.movie.posterPath} title={item.movie.title} size="w342" style={[{ width: cardW, height: cardW * 1.5 }, sel && { borderWidth: 3, borderColor: colors.accent }]} />
-                <View style={styles.cardBadges}>
-                  <RatingBadge value={item.movie.rating} />
-                </View>
-                {selecting ? (
-                  <View style={styles.cardCheck}>
-                    <Check on={sel} />
-                  </View>
-                ) : (
-                  <Pressable onPress={() => removeEntries([item])} hitSlop={8} style={styles.cardDelete} accessibilityLabel="Видалити">
-                    <Ionicons name="close" size={14} color="#fff" />
-                  </Pressable>
-                )}
-                {tab === 'liked' && isWatched(item.movie.id) ? (
-                  <View style={styles.watchedMark}>
-                    <Ionicons name="eye" size={11} color="#fff" />
-                  </View>
-                ) : null}
-              </View>
-              <Text style={styles.cardTitle} numberOfLines={1}>
-                {item.movie.title}
-              </Text>
-              <Text style={styles.cardMeta}>
-                {year(item.movie)}
-                {item.myRating ? `  ·  ★ ${item.myRating}` : ''}
-              </Text>
-            </Pressable>
-          );
-        }}
-      />
-
-      {/* Панель дій для вибраних */}
-      {selecting ? (
-        <View style={[styles.actionBar, { bottom: bottomPad }]}>
-          <BarBtn icon={allSelected ? 'checkbox' : 'square-outline'} label={allSelected ? 'Зняти' : 'Усі'} onPress={() => setSelected(allSelected ? new Set() : new Set(data.map((e) => e.movie.id)))} />
-          {tab === 'liked' ? (
-            <BarBtn
-              icon="eye"
-              label="Переглянуто"
-              disabled={!selected.size}
-              onPress={() => {
-                dispatch({ type: 'markWatchedMany', movies: selectedEntries.map((e) => e.movie) });
-                haptic('success');
-                exitSelect();
-              }}
-            />
-          ) : (
-            <BarBtn
-              icon="heart"
-              label="В обране"
-              disabled={!selected.size}
-              onPress={() => {
-                dispatch({ type: 'likeMany', movies: selectedEntries.map((e) => e.movie) });
-                haptic('success');
-                exitSelect();
-              }}
-            />
-          )}
-          <BarBtn
-            icon="trash"
-            label={`Видалити${selected.size ? ` (${selected.size})` : ''}`}
-            danger
-            disabled={!selected.size}
-            onPress={() => {
-              removeEntries(selectedEntries);
-              exitSelect();
+                </Pressable>
+              );
             }}
           />
-        </View>
-      ) : null}
 
-      {/* Скасування видалення */}
-      {undo ? (
-        <UndoBar
-          bottom={bottomPad + (selecting ? 76 : 0)}
-          text={undo.text}
-          onUndo={() => {
-            dispatch({ type: 'restore', entries: undo.entries, list: undo.list });
-            setUndo(null);
-          }}
-        />
-      ) : null}
+          {/* Панель дій для вибраних */}
+          {selecting ? (
+            <View style={[styles.actionBar, { bottom: bottomPad }]}>
+              <BarBtn icon={allSelected ? 'checkbox' : 'square-outline'} label={allSelected ? 'Зняти' : 'Усі'} onPress={() => setSelected(allSelected ? new Set() : new Set(data.map((e) => e.movie.id)))} />
+              {tab === 'liked' ? (
+                <BarBtn
+                  icon="eye"
+                  label="Переглянуто"
+                  disabled={!selected.size}
+                  onPress={() => {
+                    dispatch({ type: 'markWatchedMany', movies: selectedEntries.map((e) => e.movie) });
+                    haptic('success');
+                    exitSelect();
+                  }}
+                />
+              ) : (
+                <BarBtn
+                  icon="heart"
+                  label="В обране"
+                  disabled={!selected.size}
+                  onPress={() => {
+                    dispatch({ type: 'likeMany', movies: selectedEntries.map((e) => e.movie) });
+                    haptic('success');
+                    exitSelect();
+                  }}
+                />
+              )}
+              <BarBtn
+                icon="trash"
+                label={`Видалити${selected.size ? ` (${selected.size})` : ''}`}
+                danger
+                disabled={!selected.size}
+                onPress={() => {
+                  removeEntries(selectedEntries);
+                  exitSelect();
+                }}
+              />
+            </View>
+          ) : null}
+
+          {/* Скасування видалення */}
+          {undo ? (
+            <UndoBar
+              bottom={bottomPad + (selecting ? 76 : 0)}
+              text={undo.text}
+              onUndo={() => {
+                dispatch({ type: 'restore', entries: undo.entries, list: undo.list });
+                setUndo(null);
+              }}
+            />
+          ) : null}
+        </>
+      )}
     </View>
   );
 }
 
-const plural = (n: number) => {
-  const m10 = n % 10;
-  const m100 = n % 100;
-  if (m10 === 1 && m100 !== 11) return 'фільм';
-  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return 'фільми';
-  return 'фільмів';
-};
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -392,10 +431,10 @@ function Empty({ tab, filtered, query }: { tab: ListName; filtered: boolean; que
   const text = filtered
     ? 'Нічого не знайдено. Спробуйте змінити пошук або фільтр.'
     : tab === 'liked'
-      ? 'Свайпайте вправо в «Кастингу» або ставте ❤️ у трейлерах — фільми з’являться тут.'
+      ? 'Свайпайте вправо в «Кастингу» або ставте ❤️ у трейлерах — фільми й серіали з’являться тут.'
       : tab === 'watched'
         ? 'Свайп вгору або кнопка 👁 позначає фільм як переглянутий.'
-        : 'Тут зберігаються фільми, які ви відхилили.';
+        : 'Тут зберігається те, що ви відхилили.';
   return (
     <View style={styles.empty}>
       <Text style={{ fontSize: 46 }}>{filtered ? '🔍' : tab === 'liked' ? '💘' : tab === 'watched' ? '🍿' : '🗑️'}</Text>
@@ -403,7 +442,7 @@ function Empty({ tab, filtered, query }: { tab: ListName; filtered: boolean; que
       {!filtered && tab !== 'disliked' ? <GradientButton title="До кастингу" icon="flame" small onPress={() => router.push('/')} style={{ marginTop: 16 }} colorsPair={gradients.brand} /> : null}
       {tab !== 'disliked' ? (
         <GhostButton
-          title={query.trim() ? `Шукати «${query.trim()}» у всій базі` : 'Знайти фільм у базі'}
+          title={query.trim() ? `Шукати «${query.trim()}» у всій базі` : 'Знайти в базі'}
           icon="search"
           onPress={() => router.push(query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : '/search')}
           style={{ marginTop: 10 }}
@@ -429,6 +468,9 @@ const styles = StyleSheet.create({
   cardBadges: { position: 'absolute', top: 6, left: 6 },
   cardDelete: { position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12, backgroundColor: 'rgba(10,10,18,0.75)', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
   cardCheck: { position: 'absolute', top: 6, right: 6 },
+  chipSep: { width: 1, height: 22, backgroundColor: colors.border, alignSelf: 'center', marginRight: 8 },
+  tvMark: { position: 'absolute', bottom: 6, left: 6, paddingHorizontal: 5, paddingVertical: 2, borderRadius: 5, backgroundColor: 'rgba(77,163,255,0.92)' },
+  tvMarkText: { color: '#fff', fontSize: 8.5, fontWeight: '900', letterSpacing: 0.4 },
   watchedMark: { position: 'absolute', bottom: 6, right: 6, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.watched, alignItems: 'center', justifyContent: 'center' },
   cardTitle: { color: colors.text, fontSize: 13, fontWeight: '700', marginTop: 6 },
   cardMeta: { color: colors.textMuted, fontSize: 12, marginTop: 1 },

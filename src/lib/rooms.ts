@@ -109,7 +109,8 @@ export async function leaveRoom(code: string, userId: string) {
 
 /** Нова порція колоди: випадкові добрі фільми під фільтри кімнати. */
 export async function buildDeck(api: ApiCtx, filters: Partial<Filters> | null, exclude: Set<number>, size = 40): Promise<Movie[]> {
-  const pager = createPager(api, { ...DEFAULT_FILTERS, minVotes: 800, minRating: 6, ...(filters ?? {}), sortBy: 'random' });
+  // старі кімнати (до серіалів) — лише фільми
+  const pager = createPager(api, { ...DEFAULT_FILTERS, contentType: 'movie', minVotes: 800, minRating: 6, ...(filters ?? {}), sortBy: 'random' });
   const out = new Map<number, Movie>();
   for (let round = 0; round < 6 && out.size < size && !pager.exhausted(); round++) {
     const batches = await Promise.all([pager.next(), pager.next(), pager.next()]);

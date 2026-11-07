@@ -31,6 +31,7 @@ export default function RootLayout() {
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="movie/[id]" options={sheet} />
+            <Stack.Screen name="tv/[id]" options={sheet} />
             <Stack.Screen name="filters" options={sheet} />
             <Stack.Screen name="search" />
             <Stack.Screen name="tonight" />

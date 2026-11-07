@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { effectiveStatus, watchedCount } from '../../lib/series';
 import { AccountCard } from '../../components/AccountCard';
 import { GradientButton, Segmented, SectionTitle } from '../../components/ui';
 import { genreEmoji, genreName } from '../../lib/genres';
@@ -28,7 +29,13 @@ export default function ProfileScreen() {
     const nopes = state.disliked.length;
     const swipes = state.history.length;
     const totalDecisions = likes + nopes;
-    const minutes = state.watched.reduce((s, e) => s + (e.movie.runtime || 110), 0);
+    const minutes = state.watched.filter((e) => e.movie.id > 0).reduce((s, e) => s + (e.movie.runtime || 110), 0);
+    // серіали
+    const episodes = state.tracking.reduce((s, e) => s + watchedCount(e), 0);
+    const tvMinutes = state.tracking.reduce((s, e) => s + watchedCount(e) * (e.meta?.runtime ?? e.show.runtime ?? 45), 0);
+    const watchingNow = state.tracking.filter((e) => effectiveStatus(e) === 'watching').length;
+    const showsDone = new Set([...state.tracking.filter((e) => effectiveStatus(e) === 'completed').map((e) => e.show.id), ...state.watched.filter((e) => e.movie.id < 0).map((e) => e.movie.id)]).size;
+    const moviesWatched = state.watched.filter((e) => e.movie.id > 0).length;
     const avgLiked = likes ? state.liked.reduce((s, e) => s + e.movie.rating, 0) / likes : 0;
 
     const genreCount = new Map<number, number>();
@@ -56,10 +63,26 @@ export default function ProfileScreen() {
     const rated = state.watched.filter((e) => e.myRating);
     const myAvg = rated.length ? rated.reduce((s, e) => s + (e.myRating ?? 0), 0) / rated.length : 0;
 
-    return { likes, nopes, swipes, likeRate: totalDecisions ? Math.round((likes / totalDecisions) * 100) : 0, hours: Math.round(minutes / 60), avgLiked, topGenres, decadeList, days, myAvg };
+    return {
+      likes,
+      nopes,
+      swipes,
+      likeRate: totalDecisions ? Math.round((likes / totalDecisions) * 100) : 0,
+      hours: Math.round(minutes / 60),
+      avgLiked,
+      topGenres,
+      decadeList,
+      days,
+      myAvg,
+      episodes,
+      tvHours: Math.round(tvMinutes / 60),
+      watchingNow,
+      showsDone,
+      moviesWatched,
+    };
   }, [state]);
 
-  const level = levelFor(stats.swipes + state.watched.length * 3);
+  const level = levelFor(stats.swipes + state.watched.length * 3 + stats.episodes);
 
   const saveKey = async () => {
     const k = key.trim();
@@ -165,12 +188,24 @@ export default function ProfileScreen() {
         <Stat icon="flame" color={colors.accent} value={stats.swipes} label="Свайпів" />
         <Stat icon="heart" color={colors.like} value={stats.likes} label="Подобається" />
         <Stat icon="close-circle" color={colors.nope} value={stats.nopes} label="Не цікаво" />
-        <Stat icon="eye" color={colors.watched} value={state.watched.length} label="Переглянуто" />
+        <Stat icon="eye" color={colors.watched} value={stats.moviesWatched} label="Фільмів переглянуто" />
         <Stat icon="time" color={colors.gold} value={`≈${stats.hours}`} label="Годин кіно" />
         <Stat icon="play-circle" color={colors.accent2} value={state.trailersViewed} label="Трейлерів" />
         <Stat icon="pie-chart" color="#B57BFF" value={`${stats.likeRate}%`} label="Вподобань" />
         <Stat icon="star" color={colors.gold} value={stats.myAvg ? stats.myAvg.toFixed(1) : stats.avgLiked ? stats.avgLiked.toFixed(1) : '—'} label={stats.myAvg ? 'Моя сер. оцінка' : 'Сер. рейтинг ❤️'} />
       </View>
+
+      {stats.episodes || stats.watchingNow || stats.showsDone ? (
+        <>
+          <SectionTitle>Серіали</SectionTitle>
+          <View style={styles.grid}>
+            <Stat icon="play-circle" color={colors.accent} value={stats.watchingNow} label="Дивлюсь зараз" />
+            <Stat icon="checkmark-done-circle" color={colors.like} value={stats.showsDone} label="Серіалів переглянуто" />
+            <Stat icon="tv" color={colors.watched} value={stats.episodes} label="Серій переглянуто" />
+            <Stat icon="time" color={colors.gold} value={`≈${stats.tvHours}`} label="Годин серіалів" />
+          </View>
+        </>
+      ) : null}
 
       <View style={styles.card}>
         <Text style={styles.cardTitle}>Активність за тиждень</Text>

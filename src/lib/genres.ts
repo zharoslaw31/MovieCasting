@@ -20,6 +20,30 @@ export const GENRES: { id: number; name: string; emoji: string }[] = [
   { id: 10770, name: 'ТБ-фільм', emoji: '📺' },
 ];
 
+/** Жанри серіалів у TMDB мають власні номери — зводимо їх до жанрів фільмів, щоб фільтри, смак і статистика були спільні. */
+export const TV_TO_MOVIE_GENRE: Record<number, number[]> = {
+  10759: [28, 12], // Action & Adventure
+  10765: [878, 14], // Sci-Fi & Fantasy
+  10768: [10752], // War & Politics
+  10762: [10751], // Kids
+};
+/** Зворотне: жанр фільму → жанр серіалу (null — у серіалів такого жанру немає). */
+export const MOVIE_TO_TV_GENRE: Record<number, number | null> = {
+  28: 10759,
+  12: 10759,
+  878: 10765,
+  14: 10765,
+  10752: 10768,
+  36: 10768,
+  53: 9648,
+  27: null,
+  10749: null,
+  10402: null,
+  10770: null,
+};
+/** Ток-шоу, новини, реаліті й мильні опери в Кастинг не беремо. */
+export const TV_EXCLUDED_GENRES = [10763, 10764, 10766, 10767];
+
 const byId = new Map(GENRES.map((g) => [g.id, g]));
 export const genreName = (id: number) => byId.get(id)?.name ?? '—';
 export const genreEmoji = (id: number) => byId.get(id)?.emoji ?? '🎬';
@@ -60,3 +84,9 @@ export const COUNTRIES: { code: string; name: string; flag: string }[] = [
 
 export const languageName = (code: string) =>
   LANGUAGES.find((l) => l.code === code)?.name ?? code.toUpperCase();
+
+/** Жанр, якого немає в серіалах TMDB (жахи, романтика…), — щоб пояснити, чому серіалів не знайшлось. */
+export const tvMissingGenre = (ids: number[]) => {
+  const g = ids.find((id) => MOVIE_TO_TV_GENRE[id] === null);
+  return g ? genreName(g) : null;
+};

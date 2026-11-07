@@ -4,6 +4,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Tabs, type BottomTabBarProps } from 'expo-router/js-tabs';
 import React from 'react';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { hasNewEpisode } from '../../lib/series';
+import { useShowRefresh } from '../../lib/showRefresh';
 import { useStore } from '../../lib/store';
 import { colors, gradients, TAB_BAR_HEIGHT } from '../../theme';
 
@@ -31,7 +33,9 @@ function TabBar({ state, navigateToTab, emitter, insets }: BottomTabBarProps) {
           const cfg = TABS[route.name];
           if (!cfg) return null;
           const focused = state.index === index;
-          const badge = route.name === 'library' ? store.liked.length : 0;
+          // нові серії у ваших серіалах важливіші за кількість в Обраному
+          const fresh = route.name === 'library' ? store.tracking.filter(hasNewEpisode).length : 0;
+          const badge = route.name === 'library' ? fresh || store.liked.length : 0;
           return (
             <Pressable
               key={route.key}
@@ -48,7 +52,7 @@ function TabBar({ state, navigateToTab, emitter, insets }: BottomTabBarProps) {
                 {focused ? <LinearGradient colors={gradients.brand} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.activePill} /> : null}
                 <Ionicons name={focused ? cfg.iconActive : cfg.icon} size={22} color={focused ? '#fff' : colors.textMuted} />
                 {badge > 0 && !focused ? (
-                  <View style={styles.badge}>
+                  <View style={[styles.badge, fresh > 0 && { backgroundColor: colors.watched }]}>
                     <Text style={styles.badgeText}>{badge > 99 ? '99+' : badge}</Text>
                   </View>
                 ) : null}
@@ -63,6 +67,7 @@ function TabBar({ state, navigateToTab, emitter, insets }: BottomTabBarProps) {
 }
 
 export default function TabsLayout() {
+  useShowRefresh();
   return (
     <Tabs
       tabBar={(props) => <TabBar {...props} />}

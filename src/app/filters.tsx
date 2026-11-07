@@ -6,7 +6,7 @@ import { Chip, GhostButton, GradientButton, SectionTitle } from '../components/u
 import { COUNTRIES, GENRES, LANGUAGES } from '../lib/genres';
 import { goBack } from '../lib/nav';
 import { useStore } from '../lib/store';
-import { DEFAULT_FILTERS, Filters, SortBy } from '../lib/types';
+import { ContentType, DEFAULT_FILTERS, Filters, SortBy } from '../lib/types';
 import { colors, radius } from '../theme';
 
 const THIS_YEAR = new Date().getFullYear();
@@ -30,6 +30,11 @@ const RUNTIMES: { label: string; min: number | null; max: number | null }[] = [
   { label: '90–120 хв', min: 90, max: 120 },
   { label: '2–2.5 год', min: 120, max: 150 },
   { label: '2.5+ год', min: 150, max: null },
+];
+const CONTENT: { value: ContentType; label: string; icon: string }[] = [
+  { value: 'all', label: 'Фільми й серіали', icon: '🍿' },
+  { value: 'movie', label: 'Лише фільми', icon: '🎬' },
+  { value: 'tv', label: 'Лише серіали', icon: '📺' },
 ];
 const SORTS: { value: SortBy; label: string; icon: string }[] = [
   { value: 'random', label: 'Випадково з усієї бази', icon: '🎲' },
@@ -77,6 +82,13 @@ export default function FiltersScreen() {
       </View>
 
       <ScrollView contentContainerStyle={{ paddingHorizontal: 20, paddingBottom: 140 }} showsVerticalScrollIndicator={false}>
+        <SectionTitle>Що показувати</SectionTitle>
+        <View style={styles.wrap}>
+          {CONTENT.map((c) => (
+            <Chip key={c.value} label={c.label} icon={c.icon} active={(f.contentType ?? 'all') === c.value} onPress={() => set({ contentType: c.value })} />
+          ))}
+        </View>
+
         <SectionTitle>Сортування</SectionTitle>
         <View style={styles.wrap}>
           {SORTS.map((s) => (
@@ -118,7 +130,7 @@ export default function FiltersScreen() {
         </View>
 
         <SectionTitle>Кількість оцінок</SectionTitle>
-        <Text style={styles.hint}>Чим більше — тим відоміші фільми. 500+ ≈ відомі фільми, 0 — уся база, включно з маловідомими</Text>
+        <Text style={styles.hint}>Чим більше — тим відоміші фільми. 500+ ≈ відомі фільми, 0 — уся база, включно з маловідомими. Для серіалів поріг м’якший — оцінок у них менше.</Text>
         <View style={styles.wrap}>
           {VOTES.map((v) => (
             <Chip key={v} label={v ? `${v.toLocaleString('uk-UA')}+` : 'Будь-яка'} active={f.minVotes === v} onPress={() => set({ minVotes: v })} />
@@ -126,6 +138,7 @@ export default function FiltersScreen() {
         </View>
 
         <SectionTitle>Тривалість</SectionTitle>
+        {f.contentType !== 'movie' ? <Text style={styles.hint}>Лише для фільмів — серіали показуємо будь-якої тривалості</Text> : null}
         <View style={styles.wrap}>
           {RUNTIMES.map((r) => (
             <Chip key={r.label} label={r.label} active={f.runtimeMin === r.min && f.runtimeMax === r.max} onPress={() => set({ runtimeMin: r.min, runtimeMax: r.max })} />
@@ -151,7 +164,7 @@ export default function FiltersScreen() {
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
         <GhostButton title="Скасувати" onPress={() => goBack()} style={{ flex: 1 }} />
-        <GradientButton title="Показати фільми" icon="sparkles" onPress={apply} style={{ flex: 2 }} />
+        <GradientButton title={f.contentType === 'tv' ? 'Показати серіали' : f.contentType === 'movie' ? 'Показати фільми' : 'Показати'} icon="sparkles" onPress={apply} style={{ flex: 2 }} />
       </View>
     </View>
   );

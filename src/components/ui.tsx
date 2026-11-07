@@ -170,10 +170,13 @@ export function Segmented<T extends string>({
   value,
   options,
   onChange,
+  compact,
 }: {
   value: T;
-  options: { value: T; label: string; count?: number }[];
+  options: { value: T; label: string; count?: number; dot?: boolean }[];
   onChange: (v: T) => void;
+  /** дрібніший шрифт — для 4+ варіантів */
+  compact?: boolean;
 }) {
   return (
     <View style={styles.seg}>
@@ -182,10 +185,11 @@ export function Segmented<T extends string>({
         return (
           <Pressable key={o.value} onPress={() => onChange(o.value)} style={[styles.segItem]}>
             {active ? <LinearGradient colors={gradients.brand} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]} /> : null}
-            <Text style={[styles.segText, active && { color: '#fff' }]}>
+            <Text style={[styles.segText, compact && { fontSize: 12.5 }, active && { color: '#fff' }]} numberOfLines={1}>
               {o.label}
-              {o.count !== undefined ? `  ${o.count}` : ''}
+              {o.count !== undefined ? `${compact ? ' ' : '  '}${o.count}` : ''}
             </Text>
+            {o.dot ? <View style={styles.segDot} /> : null}
           </Pressable>
         );
       })}
@@ -261,4 +265,5 @@ const styles = StyleSheet.create({
   seg: { flexDirection: 'row', backgroundColor: colors.bgElevated, borderRadius: radius.pill, padding: 4, borderWidth: 1, borderColor: colors.border },
   segItem: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: radius.pill },
   segText: { color: colors.textDim, fontWeight: '700', fontSize: 14 },
+  segDot: { position: 'absolute', top: 5, right: 6, width: 8, height: 8, borderRadius: 4, backgroundColor: colors.watched },
 });
