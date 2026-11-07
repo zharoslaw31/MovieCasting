@@ -9,7 +9,7 @@ import { colors } from '../theme';
  * Тому: перший трейлер стартує без звуку, перший дотик будь-де вмикає звук,
  * і далі той самий плеєр перемикає відео (loadVideoById) — звук лишається.
  */
-type Props = { videoKey: string | null; top: number; height: number; visible: boolean; playing: boolean };
+type Props = { videoKey: string | null; top: number; height: number; left?: number; width?: number; visible: boolean; playing: boolean };
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 declare global {
@@ -40,7 +40,7 @@ function loadYouTubeApi(): Promise<any> {
 
 let soundUnlocked = false;
 
-export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
+export function FeedPlayer({ videoKey, top, height, left = 0, width, visible, playing }: Props) {
   const host = useRef<HTMLDivElement | null>(null);
   const player = useRef<any>(null);
   const readyRef = useRef(false);
@@ -223,7 +223,7 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
   };
 
   return (
-    <View pointerEvents={visible ? 'box-none' : 'none'} style={[styles.wrap, { top, height, opacity: visible ? 1 : 0 }]}>
+    <View pointerEvents={visible ? 'box-none' : 'none'} style={[styles.wrap, { top, height, left, width: width ?? '100%', opacity: visible ? 1 : 0 }]}>
       {React.createElement('div', { ref: host, style: { position: 'absolute', inset: 0, background: '#000' } })}
       <View style={styles.controls}>
         <Pressable onPress={toggleSound} style={styles.sound} hitSlop={8} accessibilityLabel={muted ? 'Увімкнути звук' : 'Вимкнути звук'}>
@@ -243,7 +243,7 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
 export const USES_FEED_PLAYER = true;
 
 const styles = StyleSheet.create({
-  wrap: { position: 'absolute', left: 0, right: 0, backgroundColor: '#000', zIndex: 3 },
+  wrap: { position: 'absolute', backgroundColor: '#000', zIndex: 3 },
   controls: { position: 'absolute', left: 12, bottom: -46, flexDirection: 'row', gap: 8 },
   fs: { backgroundColor: 'rgba(255,255,255,0.14)' },
   hint: { position: 'absolute', left: 12, right: 90, bottom: -90, color: '#fff', fontSize: 12, fontWeight: '600' },

@@ -7,7 +7,7 @@ import { ActivityIndicator, useWindowDimensions, FlatList, Pressable, StyleSheet
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FeedPlayer, USES_FEED_PLAYER } from '../../components/FeedPlayer';
 import { TrailerPlayer } from '../../components/TrailerPlayer';
-import { GradientButton } from '../../components/ui';
+import { GradientButton, Poster } from '../../components/ui';
 import { genreName } from '../../lib/genres';
 import { shareMovie } from '../../lib/share';
 import { useHaptics, useStore } from '../../lib/store';
@@ -24,6 +24,44 @@ const KINDS: { value: FeedKind; label: string }[] = [
   { value: 'now_playing', label: 'У кіно' },
   { value: 'top_rated', label: 'Топ' },
 ];
+
+/**
+ * Розкладка картки трейлера: відео вгорі, кнопки — внизу над меню (зручно великим пальцем),
+ * а опис займає весь простір між ними, тож порожнечі немає. На великих екранах відео не ширше 760.
+ */
+export type FeedLayout = {
+  videoW: number;
+  videoH: number;
+  videoLeft: number;
+  videoTop: number;
+  textTop: number;
+  actionsTop: number;
+  compact: boolean;
+  lines: number;
+  controlsH: number;
+};
+const LINE = 21;
+export function feedLayout(w: number, h: number, topInset: number, bottomInset: number): FeedLayout {
+  const compact = h < 700;
+  const tabsBottom = topInset + 46;
+  const controlsH = USES_FEED_PLAYER ? 50 : 0; // кнопки «Звук» / «На весь екран» під відео
+  const actionsH = compact ? 50 : 70;
+  const infoBase = compact ? 70 : 92; // постер, назва, рік, рейтинг
+  const avail = h - tabsBottom - bottomInset - 12;
+  let videoW = Math.min(w, 760);
+  let videoH = (videoW * 9) / 16;
+  const minBlock = (vh: number) => vh + controlsH + infoBase + 2 * LINE + actionsH + 28;
+  if (minBlock(videoH) > avail) {
+    videoH = Math.max(150, avail - minBlock(0));
+    videoW = Math.min(videoW, (videoH * 16) / 9);
+  }
+  const extra = Math.max(0, avail - minBlock(videoH));
+  const videoTop = tabsBottom + Math.min(extra * 0.25, 48);
+  const textTop = videoTop + videoH + controlsH + 6;
+  const actionsTop = h - bottomInset - actionsH - 14;
+  const lines = Math.max(2, Math.min(10, Math.floor((actionsTop - textTop - infoBase - 6) / LINE)));
+  return { videoW, videoH, videoLeft: (w - videoW) / 2, videoTop, textTop, actionsTop, compact, lines, controlsH };
+}
 
 export default function TrailersScreen() {
   const insets = useSafeAreaInsets();
@@ -97,8 +135,8 @@ export default function TrailersScreen() {
     if (scrollTimer.current) clearTimeout(scrollTimer.current);
     scrollTimer.current = setTimeout(() => setScrolling(false), 160);
   };
-  const feedVideoH = (winW * 9) / 16;
-  const feedVideoTop = Math.max(64, Math.min(height * 0.12, height - feedVideoH - 360));
+  const bottomInset = TAB_BAR_HEIGHT + Math.max(insets.bottom, 12);
+  const layout = feedLayout(winW, height, insets.top, bottomInset);
 
   const viewConfig = useRef({ itemVisiblePercentThreshold: 70 }).current;
   const onViewable = useRef(({ viewableItems }: { viewableItems: ListViewToken[] }) => {
@@ -125,7 +163,7 @@ export default function TrailersScreen() {
               height={height}
               active={focused && index === active}
               near={Math.abs(index - active) <= 1}
-              bottomInset={TAB_BAR_HEIGHT + Math.max(insets.bottom, 12)}
+              layout={layout}
               onNext={() => index + 1 < items.length && list.current?.scrollToIndex({ index: index + 1, animated: true })}
             />
           )}
@@ -166,7 +204,7 @@ export default function TrailersScreen() {
       )}
 
       {USES_FEED_PLAYER && height > 0 && items.length > 0 ? (
-        <FeedPlayer videoKey={items[active]?.key ?? null} top={feedVideoTop} height={feedVideoH} visible={!scrolling} playing={focused} />
+        <FeedPlayer videoKey={items[active]?.key ?? null} top={layout.videoTop} height={layout.videoH} left={layout.videoLeft} width={layout.videoW} visible={!scrolling} playing={focused} />
       ) : null}
 
       <View style={[styles.tabs, { top: insets.top + 8 }]} pointerEvents="box-none">
@@ -186,14 +224,14 @@ const TrailerItem = React.memo(function TrailerItem({
   height,
   active,
   near,
-  bottomInset,
+  layout,
   onNext,
 }: {
   item: Item;
   height: number;
   active: boolean;
   near: boolean;
-  bottomInset: number;
+  layout: FeedLayout;
   onNext: () => void;
 }) {
   const { movie, key } = item;
@@ -202,7 +240,7 @@ const TrailerItem = React.memo(function TrailerItem({
   const liked = isLiked(movie.id);
   const watched = isWatched(movie.id);
   const disliked = isDisliked(movie.id);
-  const compact = height < 720; // на невисоких екранах — кнопки без підписів, щоб не залазили під меню
+  const { videoW, videoH, videoLeft, videoTop, textTop, actionsTop, compact, lines } = layout;
   const [started, setStarted] = useState(false);
 
   useEffect(() => {
@@ -215,17 +253,13 @@ const TrailerItem = React.memo(function TrailerItem({
 
   const bg = IMG(movie.backdropPath ?? movie.posterPath, 'w780');
   const thumb = `https://img.youtube.com/vi/${key}/hqdefault.jpg`;
-  const { width } = useWindowDimensions();
-  const videoH = (width * 9) / 16;
-  // відео — під вкладками; кнопки — одразу під відео, щоб плеєр їх не перекривав
-  const videoTop = Math.max(64, Math.min(height * 0.12, height - videoH - 360));
 
   return (
     <View style={{ height, backgroundColor: '#000' }}>
       {near && bg ? <Image source={{ uri: bg }} style={StyleSheet.absoluteFill} blurRadius={30} contentFit="cover" /> : null}
-      <LinearGradient colors={['rgba(0,0,0,0.65)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.9)']} style={StyleSheet.absoluteFill} />
+      <LinearGradient colors={['rgba(0,0,0,0.7)', 'rgba(0,0,0,0.35)', 'rgba(0,0,0,0.85)']} style={StyleSheet.absoluteFill} />
 
-      <View style={[styles.video, { top: videoTop }]}>
+      <View style={[styles.video, { top: videoTop, left: videoLeft, width: videoW, height: videoH }]}>
         {active && started && !USES_FEED_PLAYER ? (
           <TrailerPlayer videoKey={key} />
         ) : (
@@ -240,66 +274,99 @@ const TrailerItem = React.memo(function TrailerItem({
         )}
       </View>
 
-      <View style={[styles.side, { top: videoTop + videoH + 10 }]}>
-        <SideButton
-          compact={compact}
-          icon={liked ? 'heart' : 'heart-outline'}
-          color={liked ? colors.accent : '#fff'}
-          label={liked ? 'В обраному' : 'Подобається'}
-          onPress={() => {
-            dispatch({ type: 'toggleLike', movie });
-            haptic(liked ? 'light' : 'success');
-          }}
-        />
-        <SideButton compact={compact} icon={watched ? 'eye' : 'eye-outline'} color={watched ? colors.watched : '#fff'} label={watched ? 'Переглянуто' : 'Бачив'} onPress={() => dispatch({ type: 'toggleWatched', movie })} />
-        <SideButton
-          compact={compact}
-          icon="close"
-          color={disliked ? colors.nope : '#fff'}
-          label="Не цікаво"
-          onPress={() => {
-            dispatch({ type: 'toggleDislike', movie });
-            haptic('light');
-            if (!disliked) setTimeout(onNext, 250);
-          }}
-        />
-        <SideButton compact={compact} icon="information-circle-outline" color="#fff" label="Про фільм" onPress={() => router.push(`/movie/${movie.id}`)} />
-        <SideButton compact={compact} icon="share-social-outline" color="#fff" label="Поділитись" onPress={() => shareMovie(movie)} />
+      <View style={[styles.block, { top: textTop }]}>
+        <View style={styles.maxW}>
+          <Pressable style={styles.head} onPress={() => router.push(`/movie/${movie.id}`)}>
+            {near ? <Poster path={movie.posterPath} size="w185" rounded={10} style={compact ? styles.thumbSmall : styles.thumb} /> : null}
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={[styles.title, compact && { fontSize: 20 }]} numberOfLines={2}>
+                {movie.title}
+              </Text>
+              <View style={styles.metaRow}>
+                <Ionicons name="star" size={13} color={colors.gold} />
+                <Text style={styles.meta}> {movie.rating ? movie.rating.toFixed(1) : '—'}</Text>
+                <Text style={styles.dot}>•</Text>
+                <Text style={styles.meta}>{year(movie)}</Text>
+                {movie.genreIds.slice(0, 2).map((g) => (
+                  <React.Fragment key={g}>
+                    <Text style={styles.dot}>•</Text>
+                    <Text style={styles.meta}>{genreName(g)}</Text>
+                  </React.Fragment>
+                ))}
+              </View>
+            </View>
+          </Pressable>
+          {movie.overview ? (
+            <Text style={styles.overview} numberOfLines={lines} onPress={() => router.push(`/movie/${movie.id}`)}>
+              {movie.overview}
+            </Text>
+          ) : (
+            <Text style={[styles.overview, { color: 'rgba(255,255,255,0.5)' }]}>Опису поки немає</Text>
+          )}
+        </View>
       </View>
 
-      <View style={[styles.info, { bottom: bottomInset + 20 }]}>
-        <Text style={styles.title} numberOfLines={2}>
-          {movie.title}
-        </Text>
-        <View style={styles.metaRow}>
-          <Text style={styles.meta}>{year(movie)}</Text>
-          <Text style={styles.dot}>•</Text>
-          <Ionicons name="star" size={13} color={colors.gold} />
-          <Text style={styles.meta}> {movie.rating ? movie.rating.toFixed(1) : '—'}</Text>
-          {movie.genreIds.slice(0, 2).map((g) => (
-            <React.Fragment key={g}>
-              <Text style={styles.dot}>•</Text>
-              <Text style={styles.meta}>{genreName(g)}</Text>
-            </React.Fragment>
-          ))}
+      <View style={[styles.block, { top: actionsTop }]}>
+        <View style={styles.maxW}>
+          <View style={styles.actions}>
+            <ActionButton
+              compact={compact}
+              icon={liked ? 'heart' : 'heart-outline'}
+              color={liked ? colors.accent : '#fff'}
+              active={liked}
+              label={liked ? 'В обраному' : 'Подобається'}
+              onPress={() => {
+                dispatch({ type: 'toggleLike', movie });
+                haptic(liked ? 'light' : 'success');
+              }}
+            />
+            <ActionButton compact={compact} icon={watched ? 'eye' : 'eye-outline'} color={watched ? colors.watched : '#fff'} active={watched} label="Бачив" onPress={() => dispatch({ type: 'toggleWatched', movie })} />
+            <ActionButton
+              compact={compact}
+              icon="close"
+              color={disliked ? colors.nope : '#fff'}
+              active={disliked}
+              label="Не цікаво"
+              onPress={() => {
+                dispatch({ type: 'toggleDislike', movie });
+                haptic('light');
+                if (!disliked) setTimeout(onNext, 250);
+              }}
+            />
+            <ActionButton compact={compact} icon="information-circle-outline" color="#fff" label="Детальніше" onPress={() => router.push(`/movie/${movie.id}`)} />
+            <ActionButton compact={compact} icon="share-social-outline" color="#fff" label="Поділитись" onPress={() => shareMovie(movie)} />
+          </View>
         </View>
-        {movie.overview ? (
-          <Text style={styles.overview} numberOfLines={3}>
-            {movie.overview}
-          </Text>
-        ) : null}
       </View>
     </View>
   );
 });
 
-function SideButton({ icon, color, label, onPress, compact }: { icon: React.ComponentProps<typeof Ionicons>['name']; color: string; label: string; onPress: () => void; compact?: boolean }) {
+function ActionButton({
+  icon,
+  color,
+  label,
+  onPress,
+  compact,
+  active,
+}: {
+  icon: React.ComponentProps<typeof Ionicons>['name'];
+  color: string;
+  label: string;
+  onPress: () => void;
+  compact?: boolean;
+  active?: boolean;
+}) {
   return (
-    <Pressable onPress={onPress} accessibilityLabel={label} style={({ pressed }) => [styles.sideBtn, pressed && { transform: [{ scale: 0.9 }] }]}>
-      <View style={styles.sideIcon}>
-        <Ionicons name={icon} size={25} color={color} />
+    <Pressable onPress={onPress} accessibilityLabel={label} style={({ pressed }) => [styles.actBtn, pressed && { transform: [{ scale: 0.9 }] }]}>
+      <View style={[styles.actIcon, compact && styles.actIconSmall, active && { backgroundColor: color + '33', borderColor: color }]}>
+        <Ionicons name={icon} size={compact ? 21 : 24} color={color} />
       </View>
-      {compact ? null : <Text style={styles.sideLabel}>{label}</Text>}
+      {compact ? null : (
+        <Text style={styles.actLabel} numberOfLines={1}>
+          {label}
+        </Text>
+      )}
     </Pressable>
   );
 }
@@ -313,18 +380,25 @@ const styles = StyleSheet.create({
   tab: { color: 'rgba(255,255,255,0.6)', fontSize: 15, fontWeight: '700', textShadowColor: 'rgba(0,0,0,0.6)', textShadowRadius: 6 },
   tabActive: { color: '#fff', fontWeight: '900' },
   tabLine: { height: 3, width: 22, borderRadius: 2, backgroundColor: colors.accent, alignSelf: 'center', marginTop: 5 },
-  video: { position: 'absolute', left: 0, right: 0, aspectRatio: 16 / 9, backgroundColor: '#000', overflow: 'hidden' },
+  video: { position: 'absolute', backgroundColor: '#000', overflow: 'hidden' },
   playWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' },
   play: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.accent + 'E6', alignItems: 'center', justifyContent: 'center' },
-  side: { position: 'absolute', right: 6, alignItems: 'center', gap: 4, zIndex: 5 },
-  sideBtn: { alignItems: 'center', width: 70 },
-  sideIcon: { width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
-  sideLabel: { color: '#fff', fontSize: 10, fontWeight: '700', marginTop: 3, textAlign: 'center' },
-  info: { position: 'absolute', left: 16, right: 92, zIndex: 5 },
+  block: { position: 'absolute', left: 0, right: 0, paddingHorizontal: 16, zIndex: 5 },
+  maxW: { width: '100%', maxWidth: 640, alignSelf: 'center' },
+  head: { flexDirection: 'row', alignItems: 'center' },
+  thumb: { width: 54, height: 81, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  thumbSmall: { width: 40, height: 60, borderWidth: 1, borderColor: 'rgba(255,255,255,0.15)' },
+  actions: { flexDirection: 'row', justifyContent: 'space-between' },
+  actBtn: { alignItems: 'center', flex: 1 },
+  actIcon: { width: 48, height: 48, borderRadius: 24, backgroundColor: 'rgba(255,255,255,0.12)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },
+  actIconSmall: { width: 42, height: 42, borderRadius: 21 },
+  actLabel: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 5, textAlign: 'center' },
+  swipeHint: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, marginTop: 18 },
+  swipeHintText: { color: 'rgba(255,255,255,0.55)', fontSize: 12, fontWeight: '700' },
   title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: -0.3 },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 6 },
   meta: { color: '#E5E5EF', fontSize: 13, fontWeight: '700' },
   dot: { color: 'rgba(255,255,255,0.5)', marginHorizontal: 6 },
-  overview: { color: 'rgba(255,255,255,0.85)', fontSize: 14, lineHeight: 20, marginTop: 8 },
+  overview: { color: 'rgba(255,255,255,0.88)', fontSize: 15, lineHeight: LINE, marginTop: 10 },
 });
 
