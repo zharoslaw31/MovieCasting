@@ -54,7 +54,7 @@ export const DEFAULT_FILTERS: Filters = {
   yearFrom: null,
   yearTo: null,
   minRating: 0,
-  minVotes: 20,
+  minVotes: 500,
   runtimeMin: null,
   runtimeMax: null,
   language: null,

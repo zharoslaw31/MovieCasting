@@ -115,11 +115,8 @@ export async function discover(ctx: ApiCtx, f: Filters, page: number, slice: Sli
  */
 const RANDOM_SORTS = [
   'popularity.desc',
-  'popularity.asc',
   'vote_average.desc',
-  'vote_average.asc',
   'vote_count.desc',
-  'vote_count.asc',
   'revenue.desc',
   'primary_release_date.desc',
   'primary_release_date.asc',
@@ -190,7 +187,7 @@ const MIX_FILTERS: Filters = {
   yearFrom: 1970,
   yearTo: null,
   minRating: 0,
-  minVotes: 80,
+  minVotes: 500,
   runtimeMin: 60,
   runtimeMax: null,
   language: null,

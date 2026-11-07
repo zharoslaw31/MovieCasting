@@ -7,7 +7,7 @@ import { DEFAULT_FILTERS, Filters, LibraryEntry, Movie, Profile, Settings, Swipe
 
 const STORAGE_KEY = 'moviecasting/state/v1';
 // Підвищуємо, коли змінюються типові фільтри — старі збережені фільтри скидаються.
-const FILTERS_VERSION = 2;
+const FILTERS_VERSION = 3;
 
 type State = {
   ready: boolean;

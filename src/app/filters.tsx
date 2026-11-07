@@ -23,7 +23,7 @@ const ERAS: { label: string; from: number | null; to: number | null }[] = [
 ];
 
 const RATINGS = [0, 5, 6, 7, 7.5, 8];
-const VOTES = [0, 20, 100, 500, 2000, 10000];
+const VOTES = [0, 50, 200, 500, 2000, 10000];
 const RUNTIMES: { label: string; min: number | null; max: number | null }[] = [
   { label: 'Будь-яка', min: null, max: null },
   { label: 'до 90 хв', min: null, max: 90 },
@@ -118,7 +118,7 @@ export default function FiltersScreen() {
         </View>
 
         <SectionTitle>Кількість оцінок</SectionTitle>
-        <Text style={styles.hint}>Відсікає маловідомі фільми з випадковими рейтингами</Text>
+        <Text style={styles.hint}>Чим більше — тим відоміші фільми. 500+ ≈ відомі фільми, 0 — уся база, включно з маловідомими</Text>
         <View style={styles.wrap}>
           {VOTES.map((v) => (
             <Chip key={v} label={v ? `${v.toLocaleString('uk-UA')}+` : 'Будь-яка'} active={f.minVotes === v} onPress={() => set({ minVotes: v })} />
