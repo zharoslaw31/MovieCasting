@@ -142,6 +142,40 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
   }, [playing, visible]);
 
   // На весь екран + горизонтальна орієнтація (Android/Chrome); на iPhone — системний повноекранний плеєр
+  const exitFullscreen = () => {
+    const d = document as any;
+    try {
+      if (d.fullscreenElement) d.exitFullscreen?.();
+      else if (d.webkitFullscreenElement) d.webkitExitFullscreen?.();
+    } catch {}
+    try {
+      (screen.orientation as any)?.unlock?.();
+    } catch {}
+  };
+
+  // кнопка «Вийти» всередині повноекранного блоку (наші звичайні кнопки там не видно)
+  const exitBtn = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => {
+    if (!host.current) return;
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = '✕  Вийти';
+    b.setAttribute('aria-label', 'Вийти з повноекранного режиму');
+    Object.assign(b.style, {
+      position: 'absolute', top: 'max(12px, env(safe-area-inset-top))', right: 'max(12px, env(safe-area-inset-right))', zIndex: '10',
+      display: 'none', padding: '10px 16px', borderRadius: '22px', border: 'none', background: 'rgba(0,0,0,0.6)', color: '#fff',
+      fontSize: '15px', fontWeight: '800', cursor: 'pointer',
+    } as Partial<CSSStyleDeclaration>);
+    b.addEventListener('click', (e) => {
+      e.stopPropagation();
+      exitFullscreen();
+    });
+    host.current.appendChild(b);
+    exitBtn.current = b;
+    return () => b.remove();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const goFullscreen = async () => {
     const box = host.current as any;
     const ifr: any = player.current?.getIframe?.();
@@ -164,7 +198,9 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
 
   useEffect(() => {
     const onChange = () => {
-      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+      const on = !!(document.fullscreenElement || (document as any).webkitFullscreenElement);
+      if (exitBtn.current) exitBtn.current.style.display = on ? 'block' : 'none';
+      if (!on) {
         try {
           (screen.orientation as any)?.unlock?.();
         } catch {}
