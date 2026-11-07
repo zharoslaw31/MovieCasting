@@ -161,9 +161,14 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
     },
     signUp: async (email, password) => {
       if (!supabase) return 'Хмара не налаштована';
-      const { data, error: e } = await supabase.auth.signUp({ email: email.trim(), password });
+      const { data, error: e } = await supabase.auth.signUp({
+        email: email.trim(),
+        password,
+        // посилання з листа веде назад на сайт
+        options: Platform.OS === 'web' ? { emailRedirectTo: `${location.origin}/MovieCasting/` } : undefined,
+      });
       if (e) return humanError(e.message);
-      if (!data.session) return 'Ми надіслали лист — підтвердьте email і увійдіть';
+      if (!data.session) return 'Ми надіслали лист — натисніть посилання в ньому, потім поверніться сюди й увійдіть';
       return null;
     },
     signOut: async () => {
