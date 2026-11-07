@@ -46,6 +46,7 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
   const readyRef = useRef(false);
   const currentKey = useRef<string | null>(null);
   const [muted, setMuted] = useState(!soundUnlocked);
+  const [hint, setHint] = useState(false);
   const mutedRef = useRef(muted);
   mutedRef.current = muted;
   const wantPlay = useRef(playing && visible);
@@ -73,10 +74,15 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
         width: '100%',
         height: '100%',
         videoId: videoKey,
-        playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, controls: 1, mute: soundUnlocked ? 0 : 1, origin: window.location.origin },
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, controls: 1, fs: 1, mute: soundUnlocked ? 0 : 1, origin: window.location.origin },
         events: {
           onReady: () => {
             readyRef.current = true;
+            const ifr: HTMLIFrameElement | undefined = player.current?.getIframe?.();
+            if (ifr) {
+              ifr.setAttribute('allowfullscreen', '');
+              ifr.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+            }
             applySound();
             if (wantPlay.current) player.current.playVideo();
           },
@@ -135,6 +141,43 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [playing, visible]);
 
+  // На весь екран + горизонтальна орієнтація (Android/Chrome); на iPhone — системний повноекранний плеєр
+  const goFullscreen = async () => {
+    const box = host.current as any;
+    const ifr: any = player.current?.getIframe?.();
+    const target = box?.requestFullscreen || box?.webkitRequestFullscreen ? box : ifr;
+    try {
+      if (target?.requestFullscreen) await target.requestFullscreen({ navigationUI: 'hide' });
+      else if (target?.webkitRequestFullscreen) target.webkitRequestFullscreen();
+      else if (ifr?.webkitEnterFullscreen) ifr.webkitEnterFullscreen();
+      else throw new Error('no fullscreen');
+      try {
+        await (screen.orientation as any)?.lock?.('landscape');
+      } catch {}
+      if (!mutedRef.current) applySound();
+      player.current?.playVideo?.();
+    } catch {
+      setHint(true);
+      setTimeout(() => setHint(false), 4000);
+    }
+  };
+
+  useEffect(() => {
+    const onChange = () => {
+      if (!document.fullscreenElement && !(document as any).webkitFullscreenElement) {
+        try {
+          (screen.orientation as any)?.unlock?.();
+        } catch {}
+      }
+    };
+    document.addEventListener('fullscreenchange', onChange);
+    document.addEventListener('webkitfullscreenchange', onChange);
+    return () => {
+      document.removeEventListener('fullscreenchange', onChange);
+      document.removeEventListener('webkitfullscreenchange', onChange);
+    };
+  }, []);
+
   const toggleSound = () => {
     soundUnlocked = true;
     mutedRef.current = !muted;
@@ -146,10 +189,17 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
   return (
     <View pointerEvents={visible ? 'box-none' : 'none'} style={[styles.wrap, { top, height, opacity: visible ? 1 : 0 }]}>
       {React.createElement('div', { ref: host, style: { position: 'absolute', inset: 0, background: '#000' } })}
-      <Pressable onPress={toggleSound} style={styles.sound} hitSlop={8} accessibilityLabel={muted ? 'Увімкнути звук' : 'Вимкнути звук'}>
-        <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color="#fff" />
-        {muted ? <Text style={styles.soundText}>Увімкнути звук</Text> : null}
-      </Pressable>
+      <View style={styles.controls}>
+        <Pressable onPress={toggleSound} style={styles.sound} hitSlop={8} accessibilityLabel={muted ? 'Увімкнути звук' : 'Вимкнути звук'}>
+          <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color="#fff" />
+          {muted ? <Text style={styles.soundText}>Увімкнути звук</Text> : null}
+        </Pressable>
+        <Pressable onPress={goFullscreen} style={[styles.sound, styles.fs]} hitSlop={8} accessibilityLabel="На весь екран">
+          <Ionicons name="expand" size={18} color="#fff" />
+          <Text style={styles.soundText}>На весь екран</Text>
+        </Pressable>
+      </View>
+      {hint ? <Text style={styles.hint}>Натисніть ⛶ у правому нижньому куті відео та поверніть телефон</Text> : null}
     </View>
   );
 }
@@ -158,10 +208,10 @@ export const USES_FEED_PLAYER = true;
 
 const styles = StyleSheet.create({
   wrap: { position: 'absolute', left: 0, right: 0, backgroundColor: '#000', zIndex: 3 },
+  controls: { position: 'absolute', left: 12, bottom: -46, flexDirection: 'row', gap: 8 },
+  fs: { backgroundColor: 'rgba(255,255,255,0.14)' },
+  hint: { position: 'absolute', left: 12, right: 90, bottom: -90, color: '#fff', fontSize: 12, fontWeight: '600' },
   sound: {
-    position: 'absolute',
-    left: 12,
-    bottom: -46,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
