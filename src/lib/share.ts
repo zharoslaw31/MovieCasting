@@ -32,3 +32,31 @@ export async function shareMovie(m: Pick<Movie, 'id' | 'title' | 'releaseDate'>)
     return 'failed';
   }
 }
+
+/** Поділитись довільним текстом із посиланням (запрошення в кімнату тощо). */
+export async function shareLink(title: string, text: string, path: string): Promise<'shared' | 'copied' | 'failed'> {
+  const url = `${Platform.OS === 'web' && typeof location !== 'undefined' ? location.origin + '/MovieCasting' : SITE}${path}`;
+  if (Platform.OS === 'web') {
+    const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { share?: (d: ShareData) => Promise<void> }) : null;
+    if (nav?.share) {
+      try {
+        await nav.share({ title, text, url });
+        return 'shared';
+      } catch (e) {
+        if (e instanceof Error && e.name === 'AbortError') return 'shared';
+      }
+    }
+    try {
+      await nav?.clipboard?.writeText(`${text}\n${url}`);
+      return 'copied';
+    } catch {
+      return 'failed';
+    }
+  }
+  try {
+    await Share.share({ message: `${text}\n${url}` });
+    return 'shared';
+  } catch {
+    return 'failed';
+  }
+}

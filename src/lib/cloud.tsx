@@ -17,7 +17,7 @@ const URL_ = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 const KEY = process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ?? '';
 export const cloudEnabled = !!(URL_ && KEY);
 
-const supabase: SupabaseClient | null = cloudEnabled
+export const supabase: SupabaseClient | null = cloudEnabled
   ? createClient(URL_, KEY, {
       auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
     })
@@ -66,6 +66,7 @@ type Status = 'off' | 'idle' | 'syncing' | 'synced' | 'error';
 type AuthCtx = {
   enabled: boolean;
   email: string | null;
+  userId: string | null;
   status: Status;
   error: string | null;
   signIn: (email: string, password: string) => Promise<string | null>;
@@ -220,6 +221,7 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
   const value: AuthCtx = {
     enabled: cloudEnabled,
     email: session?.user.email ?? null,
+    userId,
     status,
     error,
     signIn: async (email, password) => {

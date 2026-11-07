@@ -179,6 +179,162 @@ export function createPager(ctx: ApiCtx, f: Filters): Pager {
   };
 }
 
+/* ───────── «Для тебе»: підбір за смаком ───────── */
+
+export type Taste = {
+  /** фільми, від яких відштовхуємось: вподобані й високо оцінені (новіші — першими) */
+  seeds: Movie[];
+  /** вага жанру від -1 до 1: що частіше вподобаний — то вище, що частіше відхилений — то нижче */
+  genres: Record<number, number>;
+};
+
+export function buildTaste(liked: { movie: Movie; at: number }[], watched: { movie: Movie; at: number; myRating?: number }[], disliked: { movie: Movie }[]): Taste {
+  const score = new Map<number, number>();
+  const add = (m: Movie, w: number) => m.genreIds.forEach((g) => score.set(g, (score.get(g) ?? 0) + w));
+  liked.forEach((e) => add(e.movie, 1));
+  watched.forEach((e) => e.myRating && add(e.movie, e.myRating >= 7 ? 1 : e.myRating <= 4 ? -1 : 0));
+  disliked.forEach((e) => add(e.movie, -0.4));
+  const max = Math.max(1, ...[...score.values()].map(Math.abs));
+  const genres: Record<number, number> = {};
+  score.forEach((v, g) => (genres[g] = v / max));
+  const seedIds = new Set<number>();
+  const seeds = [...liked, ...watched.filter((e) => (e.myRating ?? 0) >= 7)]
+    .sort((a, b) => b.at - a.at)
+    .map((e) => e.movie)
+    .filter((m) => !seedIds.has(m.id) && (seedIds.add(m.id), true));
+  return { seeds, genres };
+}
+
+/**
+ * Колода «Для тебе»: рекомендації TMDB до ваших вподобаних фільмів (свіжі вподобання важать більше)
+ * + добірки улюблених жанрів. Кожен фільм отримує бал: скільки ваших фільмів його «радять»,
+ * рейтинг і наскільки його жанри вам до смаку. Фільтри Кастингу теж застосовуються.
+ */
+export function createForYouPager(ctx: ApiCtx, getTaste: () => Taste, f: Filters): Pager {
+  // смак читаємо щоразу заново — нові свайпи одразу впливають на наступні картки
+  if (isDemo(ctx) || !getTaste().seeds.length) return createPager(ctx, { ...f, sortBy: 'random' });
+  const usedSeeds = new Map<number, number>(); // id → скільки сторінок рекомендацій уже взяли
+  const usedDiscover = new Set<string>();
+  const recCount = new Map<number, number>();
+  const topGenresOf = (taste: Taste) =>
+    Object.entries(taste.genres)
+      .filter(([, w]) => w > 0.25)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 4)
+      .map(([g]) => Number(g));
+  let rounds = 0;
+
+  const pickSeeds = (taste: Taste, n: number) => {
+    const out: Movie[] = [];
+    const pool = taste.seeds.slice(0, 40);
+    for (let tries = 0; tries < 30 && out.length < n; tries++) {
+      // перевага свіжим вподобанням: індекс зі зміщенням до початку списку
+      const m = pool[Math.floor(Math.pow(Math.random(), 1.6) * pool.length)];
+      if (!m || out.includes(m) || (usedSeeds.get(m.id) ?? 0) >= 2) continue;
+      out.push(m);
+    }
+    return out;
+  };
+
+  const scoreOf = (taste: Taste, m: Movie) => {
+    const g = m.genreIds.length ? m.genreIds.reduce((s, id) => s + (taste.genres[id] ?? 0), 0) / m.genreIds.length : 0;
+    const votesBoost = Math.min(1, Math.log10(Math.max(10, m.votes)) / 4);
+    return (recCount.get(m.id) ?? 0) * 2.2 + m.rating * 0.45 + g * 3 + votesBoost + Math.random() * 1.6;
+  };
+
+  return {
+    exhausted: () => false,
+    next: async () => {
+      rounds++;
+      const taste = getTaste();
+      const topGenres = topGenresOf(taste);
+      const seeds = pickSeeds(taste, 3);
+      const calls: Promise<Movie[]>[] = seeds.map(async (seed) => {
+        const page = (usedSeeds.get(seed.id) ?? 0) + 1;
+        usedSeeds.set(seed.id, page);
+        const d = await request<Page>(ctx, `/movie/${seed.id}/recommendations`, { page }).catch(() => null);
+        return (d?.results ?? []).map(mapMovie);
+      });
+      // кожен другий раунд — ще й добірка улюблених жанрів (щоб колода не замкнулась на кількох фільмах)
+      if (topGenres.length && (rounds % 2 === 1 || !seeds.length)) {
+        const g = topGenres.slice(0, randInt(1, Math.min(2, topGenres.length)));
+        const page = randInt(1, 15);
+        const key = `${g.join('|')}:${page}`;
+        if (!usedDiscover.has(key)) {
+          usedDiscover.add(key);
+          calls.push(
+            request<Page>(ctx, '/discover/movie', {
+              page,
+              sort_by: pick(['vote_average.desc', 'popularity.desc', 'vote_count.desc']),
+              with_genres: g.join('|'),
+              'vote_count.gte': 400,
+              include_adult: 'false',
+            })
+              .then((d) => d.results.map(mapMovie))
+              .catch(() => []),
+          );
+        }
+      }
+      const all = (await Promise.all(calls)).flat();
+      const unique = new Map<number, Movie>();
+      all.forEach((m) => {
+        recCount.set(m.id, (recCount.get(m.id) ?? 0) + 1);
+        if (!unique.has(m.id)) unique.set(m.id, m);
+      });
+      return [...unique.values()]
+        .filter((m) => m.posterPath && m.votes >= 80 && matchesFilters(m, f))
+        .map((m) => ({ m, s: scoreOf(taste, m) }))
+        .sort((a, b) => b.s - a.s)
+        .map((x) => x.m);
+    },
+  };
+}
+
+/* ───────── «Що подивитись сьогодні» ───────── */
+
+export type TonightQuery = {
+  genres: number[];
+  anyGenre: boolean; // true — будь-який із жанрів, false — усі разом
+  without: number[];
+  runtimeMax: number | null;
+  yearFrom: number | null;
+  yearTo: number | null;
+  minRating: number;
+};
+
+/** Кандидати з усієї бази під настрій: добрі фільми (≥800 оцінок), випадкові сторінки, щоб щоразу було різне. */
+export async function tonightCandidates(ctx: ApiCtx, q: TonightQuery): Promise<Movie[]> {
+  if (isDemo(ctx)) return DEMO_MOVIES.filter((m) => (!q.genres.length || q.genres.some((g) => m.genreIds.includes(g))) && !q.without.some((g) => m.genreIds.includes(g)));
+  const params = (page: number, sort: string) => ({
+    page,
+    sort_by: sort,
+    include_adult: 'false',
+    with_genres: q.genres.length ? q.genres.join(q.anyGenre ? '|' : ',') : undefined,
+    without_genres: q.without.length ? q.without.join(',') : undefined,
+    'with_runtime.gte': 60,
+    'with_runtime.lte': q.runtimeMax ?? undefined,
+    'primary_release_date.gte': q.yearFrom ? `${q.yearFrom}-01-01` : undefined,
+    'primary_release_date.lte': q.yearTo ? `${q.yearTo}-12-31` : todayIso(),
+    'vote_count.gte': 800,
+    'vote_average.gte': q.minRating,
+  });
+  const first = await request<Page>(ctx, '/discover/movie', params(1, 'popularity.desc'));
+  const total = Math.min(first.total_pages, 25);
+  const pages = new Set<number>();
+  while (pages.size < Math.min(3, Math.max(0, total - 1))) pages.add(randInt(2, total));
+  const more = await Promise.all(
+    [...pages].map((pg, i) =>
+      request<Page>(ctx, '/discover/movie', params(pg, i === 0 ? 'vote_average.desc' : 'popularity.desc'))
+        .then((d) => d.results)
+        .catch(() => [] as RawMovie[]),
+    ),
+  );
+  const seen = new Set<number>();
+  return [...first.results, ...more.flat()]
+    .map(mapMovie)
+    .filter((m) => m.posterPath && !seen.has(m.id) && (seen.add(m.id), true));
+}
+
 export type FeedKind = 'mix' | 'popular' | 'upcoming' | 'now_playing' | 'top_rated';
 
 const MIX_FILTERS: Filters = {
@@ -372,8 +528,8 @@ export function matchesFilters(m: Movie, f: Filters): boolean {
   if (f.yearFrom && y < f.yearFrom) return false;
   if (f.yearTo && y > f.yearTo) return false;
   if (f.minRating && m.rating < f.minRating) return false;
-  if (f.runtimeMin && (m.runtime ?? 0) < f.runtimeMin) return false;
-  if (f.runtimeMax && (m.runtime ?? 0) > f.runtimeMax) return false;
+  if (f.runtimeMin && m.runtime && m.runtime < f.runtimeMin) return false;
+  if (f.runtimeMax && m.runtime && m.runtime > f.runtimeMax) return false;
   if (f.language && m.language !== f.language) return false;
   return true;
 }

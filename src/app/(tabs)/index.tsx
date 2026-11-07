@@ -1,12 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SwipeDeck, SwipeDeckHandle } from '../../components/SwipeDeck';
 import { GradientButton, GhostButton, RoundButton } from '../../components/ui';
 import { countActiveFilters, useHaptics, useStore } from '../../lib/store';
-import { createPager, Pager } from '../../lib/tmdb';
+import { buildTaste, createForYouPager, createPager, Pager } from '../../lib/tmdb';
 import { Movie, SwipeKind } from '../../lib/types';
 import { colors, gradients, radius, TAB_BAR_HEIGHT } from '../../theme';
 
@@ -26,7 +27,14 @@ export default function CastingScreen() {
   const generation = useRef(0);
   const [shuffleTick, setShuffleTick] = useState(0);
 
-  const filtersKey = JSON.stringify(state.filters) + api.language + String(api.demo) + api.apiKey + shuffleTick;
+  const mode = state.settings.castingMode ?? 'all';
+  const forYou = mode === 'foryou';
+  const filtersKey = JSON.stringify(state.filters) + api.language + String(api.demo) + api.apiKey + shuffleTick + mode;
+  const taste = useMemo(() => buildTaste(state.liked, state.watched, state.disliked), [state.liked, state.watched, state.disliked]);
+  const tasteRef = useRef(taste);
+  tasteRef.current = taste;
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
 
   const loadMore = useCallback(async () => {
     if (loadingRef.current || !pager.current) return;
@@ -50,7 +58,9 @@ export default function CastingScreen() {
       }
       setQueue((q) => {
         const ids = new Set(q.map((m) => m.id));
-        return [...q, ...shuffleArr(added.filter((m) => !ids.has(m.id)))];
+        const fresh = added.filter((m) => !ids.has(m.id));
+        // «Для тебе» — найкращі збіги першими; уся база — випадковий порядок
+        return [...q, ...(modeRef.current === 'foryou' ? fresh : shuffleArr(fresh))];
       });
       if (!added.length && (p.exhausted() || emptyRounds >= 3)) setExhausted(true);
     } catch (e) {
@@ -68,7 +78,7 @@ export default function CastingScreen() {
     if (!state.ready) return;
     generation.current += 1;
     loadingRef.current = false;
-    pager.current = createPager(api, state.filters);
+    pager.current = forYou ? createForYouPager(api, () => tasteRef.current, state.filters) : createPager(api, state.filters);
     setQueue([]);
     setExhausted(false);
     loadMore();
@@ -133,7 +143,7 @@ export default function CastingScreen() {
           <Text style={[styles.logo, width < 380 && { fontSize: 22 }]}>
             Movie<Text style={{ color: colors.accent }}>Casting</Text>
           </Text>
-          <Text style={styles.sub}>{api.demo ? 'Демо-режим · додайте ключ у Профілі' : state.filters.sortBy === 'random' ? 'Випадкові фільми з усієї бази' : 'Свайпай і знаходь своє кіно'}</Text>
+          {api.demo ? <Text style={styles.sub}>Демо-режим · додайте ключ у Профілі</Text> : null}
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
         <Pressable accessibilityLabel="Пошук фільму" onPress={() => router.push('/search')} style={({ pressed }) => [styles.filterBtn, pressed && { opacity: 0.7 }]}>
@@ -160,7 +170,17 @@ export default function CastingScreen() {
         </View>
       </View>
 
-      <View style={{ flex: 1, marginTop: 12 }}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.modes} contentContainerStyle={styles.modesRow}>
+        <ModeChip icon="🎲" label="Уся база" active={!forYou} onPress={() => dispatch({ type: 'settings', settings: { castingMode: 'all' } })} />
+        <ModeChip icon="✨" label="Для тебе" active={forYou} onPress={() => dispatch({ type: 'settings', settings: { castingMode: 'foryou' } })} />
+        <ModeChip icon="🍿" label="Що сьогодні?" onPress={() => router.push('/tonight')} />
+        <ModeChip icon="👫" label="Удвох" onPress={() => router.push('/together')} />
+      </ScrollView>
+      {forYou && state.liked.length < 3 ? (
+        <Text style={styles.forYouHint}>Вподобайте хоча б 3 фільми — і підбір стане по-справжньому вашим. Поки показуємо найкраще з улюблених жанрів.</Text>
+      ) : null}
+
+      <View style={{ flex: 1, marginTop: 10 }}>
         {queue.length ? (
           <SwipeDeck ref={deck} movies={queue} onSwipe={handleSwipe} onOpen={(m) => router.push(`/movie/${m.id}`)} />
         ) : (
@@ -217,6 +237,16 @@ export default function CastingScreen() {
   );
 }
 
+function ModeChip({ icon, label, active, onPress }: { icon: string; label: string; active?: boolean; onPress: () => void }) {
+  return (
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.modeChip, active && styles.modeChipActive, pressed && { opacity: 0.75 }]}>
+      {active ? <LinearGradient colors={gradients.brand} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[StyleSheet.absoluteFill, { borderRadius: radius.pill }]} /> : null}
+      <Text style={styles.modeIcon}>{icon}</Text>
+      <Text style={[styles.modeText, active && { color: '#fff' }]}>{label}</Text>
+    </Pressable>
+  );
+}
+
 function TipRow({ icon, color, text }: { icon: React.ComponentProps<typeof Ionicons>['name']; color: string; text: string }) {
   return (
     <View style={styles.tipRow}>
@@ -229,6 +259,13 @@ function TipRow({ icon, color, text }: { icon: React.ComponentProps<typeof Ionic
 }
 
 const styles = StyleSheet.create({
+  modes: { flexGrow: 0, marginTop: 12 },
+  modesRow: { paddingHorizontal: 14, gap: 8 },
+  modeChip: { flexDirection: 'row', alignItems: 'center', gap: 6, height: 36, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border, overflow: 'hidden' },
+  modeChipActive: { borderColor: 'transparent' },
+  modeIcon: { fontSize: 15 },
+  modeText: { color: colors.textDim, fontSize: 14, fontWeight: '800' },
+  forYouHint: { color: colors.textMuted, fontSize: 12, lineHeight: 17, paddingHorizontal: 20, marginTop: 8 },
   tipWrap: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,5,10,0.72)', alignItems: 'center', justifyContent: 'center', padding: 22, zIndex: 30 },
   tip: { width: '100%', maxWidth: 420, backgroundColor: colors.bgElevated, borderRadius: radius.xl, padding: 20, borderWidth: 1, borderColor: colors.border },
   tipTitle: { color: colors.text, fontSize: 20, fontWeight: '900', marginBottom: 12 },

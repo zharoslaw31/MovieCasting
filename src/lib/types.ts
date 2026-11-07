@@ -95,4 +95,8 @@ export type Settings = {
   demo: boolean;
   haptics: boolean;
   onboarded?: boolean;
+  /** Кастинг: уся база або підбір «Для тебе» */
+  castingMode?: 'all' | 'foryou';
+  /** кімната «Кастингу удвох», у якій ви зараз */
+  roomCode?: string | null;
 };

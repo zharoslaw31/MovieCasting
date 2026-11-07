@@ -33,6 +33,8 @@ export default function RootLayout() {
             <Stack.Screen name="movie/[id]" options={sheet} />
             <Stack.Screen name="filters" options={sheet} />
             <Stack.Screen name="search" />
+            <Stack.Screen name="tonight" />
+            <Stack.Screen name="together" />
             <Stack.Screen name="person/[id]" />
           </Stack>
           <CloudOverlay />
