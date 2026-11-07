@@ -5,6 +5,7 @@ import React from 'react';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { startAutoUpdate } from '../lib/autoUpdate';
+import { CloudProvider } from '../lib/cloud';
 import { StoreProvider } from '../lib/store';
 import { colors } from '../theme';
 
@@ -23,6 +24,7 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StoreProvider>
+        <CloudProvider>
         <ThemeProvider value={theme}>
           <StatusBar style="light" />
           <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: colors.bg } }}>
@@ -31,6 +33,7 @@ export default function RootLayout() {
             <Stack.Screen name="filters" options={sheet} />
           </Stack>
         </ThemeProvider>
+        </CloudProvider>
       </StoreProvider>
     </SafeAreaProvider>
   );

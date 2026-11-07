@@ -20,6 +20,8 @@ type State = {
   history: { id: number; kind: SwipeKind; at: number }[]; // для «скасувати» та статистики
   trailersViewed: number;
   filtersV?: number;
+  cloudUserId?: string | null; // з яким акаунтом пов'язані дані на цьому пристрої
+  lastSyncAt?: number;
 };
 
 const initial: State = {
@@ -54,7 +56,52 @@ type Action =
   | { type: 'settings'; settings: Partial<Settings> }
   | { type: 'profile'; profile: Partial<Profile> }
   | { type: 'trailerViewed' }
-  | { type: 'resetLibrary' };
+  | { type: 'resetLibrary' }
+  | { type: 'applyCloud'; data: SyncData; userId: string; at: number }
+  | { type: 'cloudLinked'; userId: string; at: number }
+  | { type: 'signedOut' };
+
+/** Те, що зберігається в хмарі для акаунта. */
+export type SyncData = Pick<State, 'profile' | 'liked' | 'watched' | 'disliked' | 'history' | 'trailersViewed'>;
+
+export const syncDataOf = (s: State): SyncData => ({
+  profile: s.profile,
+  liked: s.liked,
+  watched: s.watched,
+  disliked: s.disliked,
+  history: s.history,
+  trailersViewed: s.trailersViewed,
+});
+
+const mergeList = (a: LibraryEntry[], b: LibraryEntry[]) => {
+  const map = new Map<number, LibraryEntry>();
+  [...a, ...b].forEach((e) => {
+    const cur = map.get(e.movie.id);
+    if (!cur || e.at > cur.at) map.set(e.movie.id, { ...e, myRating: e.myRating ?? cur?.myRating });
+  });
+  return [...map.values()].sort((x, y) => y.at - x.at);
+};
+
+/** Об'єднання гостьових даних пристрою з даними акаунта (при першому вході). */
+export const mergeSync = (local: SyncData, cloud: SyncData): SyncData => {
+  const seen = new Set<string>();
+  return {
+    profile: cloud.profile ?? local.profile,
+    liked: mergeList(local.liked, cloud.liked ?? []),
+    watched: mergeList(local.watched, cloud.watched ?? []),
+    disliked: mergeList(local.disliked, cloud.disliked ?? []),
+    history: [...(cloud.history ?? []), ...local.history]
+      .filter((h) => {
+        const k = `${h.id}|${h.at}`;
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      })
+      .sort((x, y) => x.at - y.at)
+      .slice(-2000),
+    trailersViewed: Math.max(local.trailersViewed, cloud.trailersViewed ?? 0),
+  };
+};
 
 const without = (list: LibraryEntry[], id: number) => list.filter((e) => e.movie.id !== id);
 const has = (list: LibraryEntry[], id: number) => list.some((e) => e.movie.id === id);
@@ -131,6 +178,22 @@ function reducer(s: State, a: Action): State {
       return { ...s, trailersViewed: s.trailersViewed + 1 };
     case 'resetLibrary':
       return { ...s, liked: [], watched: [], disliked: [], history: [], trailersViewed: 0 };
+    case 'applyCloud':
+      return { ...s, ...a.data, cloudUserId: a.userId, lastSyncAt: a.at };
+    case 'cloudLinked':
+      return { ...s, cloudUserId: a.userId, lastSyncAt: a.at };
+    case 'signedOut':
+      return {
+        ...s,
+        liked: [],
+        watched: [],
+        disliked: [],
+        history: [],
+        trailersViewed: 0,
+        profile: { name: 'Кіноман', avatar: '🍿', createdAt: Date.now() },
+        cloudUserId: null,
+        lastSyncAt: undefined,
+      };
   }
 }
 

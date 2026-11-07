@@ -30,6 +30,9 @@ jobs:
         env:
           # Необов'язково: ключ TMDB для всіх пристроїв (Settings → Secrets → Actions → TMDB_API_KEY)
           EXPO_PUBLIC_TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          # Хмарний акаунт (Supabase): Project URL і anon public key
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
       - name: SPA fallback for deep links
         run: cp dist/index.html dist/404.html && touch dist/.nojekyll
       - uses: actions/upload-pages-artifact@v3

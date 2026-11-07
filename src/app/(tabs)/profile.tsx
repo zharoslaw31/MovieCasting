@@ -3,6 +3,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { AccountCard } from '../../components/AccountCard';
 import { GradientButton, Segmented, SectionTitle } from '../../components/ui';
 import { genreEmoji, genreName } from '../../lib/genres';
 import { useStore } from '../../lib/store';
@@ -146,6 +147,8 @@ export default function ProfileScreen() {
         </View>
         <Text style={styles.progressText}>{level.next ? `До рівня «${level.next}»: ${level.left} дій` : 'Максимальний рівень 🏆'}</Text>
       </LinearGradient>
+
+      <AccountCard />
 
       {/* Статистика */}
       <SectionTitle>Статистика</SectionTitle>
