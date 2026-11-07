@@ -1,5 +1,5 @@
 import { DEMO_MOVIES } from './demo';
-import { Filters, Movie, MovieDetails, Settings } from './types';
+import { Filters, Movie, MovieDetails, Person, Provider, Settings, WatchProviders } from './types';
 
 /**
  * Клієнт TMDB (The Movie Database).
@@ -8,7 +8,7 @@ import { Filters, Movie, MovieDetails, Settings } from './types';
  * Ключ: https://www.themoviedb.org/settings/api (підходить і "API Key", і "Read Access Token").
  */
 const BASE = 'https://api.themoviedb.org/3';
-export const IMG = (path: string | null | undefined, size: 'w185' | 'w342' | 'w500' | 'w780' | 'w1280' | 'original' = 'w500') =>
+export const IMG = (path: string | null | undefined, size: 'w92' | 'w185' | 'w342' | 'w500' | 'w780' | 'w1280' | 'original' = 'w500') =>
   path ? `https://image.tmdb.org/t/p/${size}${path}` : null;
 
 export const ENV_API_KEY = process.env.EXPO_PUBLIC_TMDB_API_KEY ?? '';
@@ -226,13 +226,56 @@ export function createFeedPager(ctx: ApiCtx, kind: FeedKind): Pager {
   };
 }
 
-export async function search(ctx: ApiCtx, query: string): Promise<Movie[]> {
+export async function search(ctx: ApiCtx, query: string, page = 1): Promise<{ movies: Movie[]; totalPages: number }> {
   if (isDemo(ctx)) {
     const q = query.toLowerCase();
-    return DEMO_MOVIES.filter((m) => m.title.toLowerCase().includes(q) || m.originalTitle.toLowerCase().includes(q));
+    return { movies: DEMO_MOVIES.filter((m) => m.title.toLowerCase().includes(q) || m.originalTitle.toLowerCase().includes(q)), totalPages: 1 };
   }
-  const data = await request<Page>(ctx, '/search/movie', { query, include_adult: 'false' });
-  return data.results.map(mapMovie);
+  const data = await request<Page>(ctx, '/search/movie', { query, page, include_adult: 'false' });
+  return { movies: data.results.map(mapMovie), totalPages: Math.min(data.total_pages, 500) };
+}
+
+type RawProvider = { provider_id: number; provider_name: string; logo_path: string | null };
+type RawProviders = { results?: Record<string, { link?: string; flatrate?: RawProvider[]; free?: RawProvider[]; ads?: RawProvider[]; rent?: RawProvider[]; buy?: RawProvider[] }> };
+
+/** Де подивитись (дані JustWatch через TMDB) — спершу Україна. */
+const mapProviders = (raw: RawProviders | undefined): WatchProviders | null => {
+  const r = raw?.results?.UA;
+  if (!r) return null;
+  const map = (l?: RawProvider[]): Provider[] => (l ?? []).map((p) => ({ id: p.provider_id, name: p.provider_name, logoPath: p.logo_path }));
+  const out = { link: r.link ?? null, stream: map([...(r.flatrate ?? []), ...(r.free ?? []), ...(r.ads ?? [])]), rent: map(r.rent), buy: map(r.buy) };
+  return out.stream.length || out.rent.length || out.buy.length ? out : null;
+};
+
+export async function person(ctx: ApiCtx, id: number): Promise<Person> {
+  if (isDemo(ctx)) throw new TmdbError('Недоступно в демо-режимі');
+  const d = await request<{
+    id: number;
+    name: string;
+    biography: string;
+    profile_path: string | null;
+    birthday: string | null;
+    place_of_birth: string | null;
+    known_for_department: string;
+    movie_credits: { cast: (RawMovie & { character?: string; popularity?: number })[]; crew: (RawMovie & { job?: string; popularity?: number })[] };
+  }>(ctx, `/person/${id}`, { append_to_response: 'movie_credits' });
+  const seen = new Set<number>();
+  const all = [
+    ...(d.movie_credits?.cast ?? []).map((m) => ({ m, role: m.character ?? '' })),
+    ...(d.movie_credits?.crew ?? []).map((m) => ({ m, role: m.job === 'Director' ? 'Режисер' : m.job ?? '' })),
+  ]
+    .filter(({ m }) => m.poster_path && !seen.has(m.id) && (seen.add(m.id), true))
+    .sort((a, b) => (b.m.vote_count ?? 0) - (a.m.vote_count ?? 0));
+  return {
+    id: d.id,
+    name: d.name,
+    biography: d.biography ?? '',
+    profilePath: d.profile_path,
+    birthday: d.birthday,
+    placeOfBirth: d.place_of_birth,
+    knownFor: d.known_for_department,
+    movies: all.map(({ m, role }) => ({ ...mapMovie(m), role })),
+  };
 }
 
 type RawVideo = { key: string; site: string; type: string; official: boolean; iso_639_1: string; size: number };
@@ -260,7 +303,7 @@ export async function trailerKey(ctx: ApiCtx, id: number): Promise<string | null
 export async function details(ctx: ApiCtx, id: number): Promise<MovieDetails> {
   if (isDemo(ctx)) {
     const m = DEMO_MOVIES.find((x) => x.id === id);
-    if (m) return m;
+    if (m) return { ...m, similar: DEMO_MOVIES.filter((x) => x.id !== id).slice(0, 8) };
     throw new TmdbError('Фільм недоступний у демо-режимі');
   }
   const lang = ctx.language.slice(0, 2);
@@ -271,12 +314,15 @@ export async function details(ctx: ApiCtx, id: number): Promise<MovieDetails> {
       revenue: number;
       production_countries: { iso_3166_1: string; name: string }[];
       videos: { results: RawVideo[] };
+      recommendations?: Page;
+      similar?: Page;
+      'watch/providers'?: RawProviders;
       credits: {
         cast: { id: number; name: string; character: string; profile_path: string | null }[];
-        crew: { name: string; job: string }[];
+        crew: { id: number; name: string; job: string }[];
       };
     }
-  >(ctx, `/movie/${id}`, { append_to_response: 'videos,credits', include_video_language: `${lang},en,null` });
+  >(ctx, `/movie/${id}`, { append_to_response: 'videos,credits,recommendations,similar,watch/providers', include_video_language: `${lang},en,null` });
   return {
     ...mapMovie(d),
     tagline: d.tagline ?? '',
@@ -288,6 +334,12 @@ export async function details(ctx: ApiCtx, id: number): Promise<MovieDetails> {
     trailerKey: pickTrailer(d.videos?.results ?? [], lang),
     budget: d.budget ?? 0,
     revenue: d.revenue ?? 0,
+    directorId: d.credits?.crew.find((c) => c.job === 'Director')?.id ?? null,
+    providers: mapProviders(d['watch/providers']),
+    similar: (d.recommendations?.results?.length ? d.recommendations.results : d.similar?.results ?? [])
+      .map(mapMovie)
+      .filter((x) => x.posterPath)
+      .slice(0, 16),
   };
 }
 

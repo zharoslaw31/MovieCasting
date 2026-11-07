@@ -20,10 +20,27 @@ export type MovieDetails = Movie & {
   imdbId: string | null;
   countries: string[];
   director: string | null;
+  directorId?: number | null;
   cast: { id: number; name: string; character: string; profilePath: string | null }[];
   trailerKey: string | null;
   budget: number;
   revenue: number;
+  providers: WatchProviders | null;
+  similar: Movie[];
+};
+
+export type Provider = { id: number; name: string; logoPath: string | null };
+export type WatchProviders = { link: string | null; stream: Provider[]; rent: Provider[]; buy: Provider[] };
+
+export type Person = {
+  id: number;
+  name: string;
+  biography: string;
+  profilePath: string | null;
+  birthday: string | null;
+  placeOfBirth: string | null;
+  knownFor: string;
+  movies: (Movie & { role: string })[];
 };
 
 export type SortBy =
@@ -77,4 +94,5 @@ export type Settings = {
   language: 'uk-UA' | 'en-US';
   demo: boolean;
   haptics: boolean;
+  onboarded?: boolean;
 };

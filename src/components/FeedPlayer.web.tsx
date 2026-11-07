@@ -228,7 +228,7 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
       <View style={styles.controls}>
         <Pressable onPress={toggleSound} style={styles.sound} hitSlop={8} accessibilityLabel={muted ? 'Увімкнути звук' : 'Вимкнути звук'}>
           <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color="#fff" />
-          {muted ? <Text style={styles.soundText}>Увімкнути звук</Text> : null}
+          {muted ? <Text style={styles.soundText}>Звук</Text> : null}
         </Pressable>
         <Pressable onPress={goFullscreen} style={[styles.sound, styles.fs]} hitSlop={8} accessibilityLabel="На весь екран">
           <Ionicons name="expand" size={18} color="#fff" />

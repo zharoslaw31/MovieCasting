@@ -54,4 +54,6 @@ export const DEMO_MOVIES: MovieDetails[] = RAW.map((r) => ({
   cast: [],
   budget: 0,
   revenue: 0,
+  providers: null,
+  similar: [],
 }));

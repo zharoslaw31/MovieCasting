@@ -5,6 +5,7 @@ import React from 'react';
 import { Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { startAutoUpdate } from '../lib/autoUpdate';
+import { CloudOverlay } from '../components/CloudOverlay';
 import { CloudProvider } from '../lib/cloud';
 import { StoreProvider } from '../lib/store';
 import { colors } from '../theme';
@@ -31,7 +32,10 @@ export default function RootLayout() {
             <Stack.Screen name="(tabs)" />
             <Stack.Screen name="movie/[id]" options={sheet} />
             <Stack.Screen name="filters" options={sheet} />
+            <Stack.Screen name="search" />
+            <Stack.Screen name="person/[id]" />
           </Stack>
+          <CloudOverlay />
         </ThemeProvider>
         </CloudProvider>
       </StoreProvider>

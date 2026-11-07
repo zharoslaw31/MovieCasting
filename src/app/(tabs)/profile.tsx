@@ -20,6 +20,8 @@ export default function ProfileScreen() {
   const [key, setKey] = useState(state.settings.apiKey);
   const [checking, setChecking] = useState(false);
   const [keyStatus, setKeyStatus] = useState<'ok' | 'bad' | null>(null);
+  // ключ TMDB уже вбудовано в сайт — поле для власного ключа ховаємо в «додатково»
+  const [showKey, setShowKey] = useState(!ENV_API_KEY || !!state.settings.apiKey);
 
   const stats = useMemo(() => {
     const likes = state.liked.length;
@@ -120,7 +122,14 @@ export default function ProfileScreen() {
                 }}
               />
             ) : (
-              <Pressable onPress={() => setEditing(true)} style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Pressable
+                onPress={() => {
+                  setName(state.profile.name);
+                  setEditing(true);
+                }}
+                accessibilityLabel="Змінити ім'я"
+                style={{ flexDirection: 'row', alignItems: 'center' }}
+              >
                 <Text style={styles.name} numberOfLines={1}>
                   {state.profile.name}
                 </Text>
@@ -220,32 +229,42 @@ export default function ProfileScreen() {
           <Text style={styles.cardTitleInline}>{api.demo ? 'Демо-режим (12 фільмів)' : 'Підключено до TMDB'}</Text>
         </View>
         <Text style={styles.muted}>
-          Дані фільмів беруться з TMDB — безкоштовної бази з понад мільйоном фільмів, IMDb-ідентифікаторами та трейлерами. Отримайте безкоштовний ключ і вставте його нижче.
+          {api.demo
+            ? 'Дані фільмів беруться з TMDB — безкоштовної бази з понад мільйоном фільмів, IMDb-ідентифікаторами та трейлерами. Отримайте безкоштовний ключ і вставте його нижче.'
+            : 'Понад мільйон фільмів з TMDB: описи, рейтинги, трейлери, актори й посилання на IMDb.'}
         </Text>
-        <View style={styles.keyRow}>
-          <TextInput
-            value={key}
-            onChangeText={(t) => {
-              setKey(t);
-              setKeyStatus(null);
-            }}
-            placeholder={ENV_API_KEY ? 'Ключ задано в .env' : 'TMDB API Key або Read Access Token'}
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            secureTextEntry={!!key && keyStatus === 'ok'}
-            style={styles.keyInput}
-          />
-          {keyStatus === 'ok' ? <Ionicons name="checkmark-circle" size={22} color={colors.like} /> : keyStatus === 'bad' ? <Ionicons name="alert-circle" size={22} color={colors.nope} /> : null}
-        </View>
-        {keyStatus === 'bad' ? <Text style={[styles.muted, { color: colors.nope }]}>Ключ не підходить або немає з’єднання.</Text> : null}
-        <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
-          <GradientButton title={checking ? 'Перевіряємо…' : 'Зберегти ключ'} icon="key" small onPress={saveKey} style={{ flex: 1 }} />
-          <Pressable style={styles.linkBtn} onPress={() => Linking.openURL('https://www.themoviedb.org/settings/api')}>
-            <Text style={styles.link}>Отримати ключ</Text>
-            <Ionicons name="open-outline" size={14} color={colors.accent} />
+        {showKey ? (
+          <>
+          <View style={styles.keyRow}>
+            <TextInput
+              value={key}
+              onChangeText={(t) => {
+                setKey(t);
+                setKeyStatus(null);
+              }}
+              placeholder={ENV_API_KEY ? 'Власний ключ (необов’язково)' : 'TMDB API Key або Read Access Token'}
+              placeholderTextColor={colors.textMuted}
+              autoCapitalize="none"
+              autoCorrect={false}
+              secureTextEntry={!!key && keyStatus === 'ok'}
+              style={styles.keyInput}
+            />
+            {keyStatus === 'ok' ? <Ionicons name="checkmark-circle" size={22} color={colors.like} /> : keyStatus === 'bad' ? <Ionicons name="alert-circle" size={22} color={colors.nope} /> : null}
+          </View>
+          {keyStatus === 'bad' ? <Text style={[styles.muted, { color: colors.nope }]}>Ключ не підходить або немає з’єднання.</Text> : null}
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+            <GradientButton title={checking ? 'Перевіряємо…' : 'Зберегти ключ'} icon="key" small onPress={saveKey} style={{ flex: 1 }} />
+            <Pressable style={styles.linkBtn} onPress={() => Linking.openURL('https://www.themoviedb.org/settings/api')}>
+              <Text style={styles.link}>Отримати ключ</Text>
+              <Ionicons name="open-outline" size={14} color={colors.accent} />
+            </Pressable>
+          </View>
+          </>
+        ) : (
+          <Pressable onPress={() => setShowKey(true)} style={{ marginTop: 10 }} hitSlop={6}>
+            <Text style={styles.link}>Використати власний ключ TMDB</Text>
           </Pressable>
-        </View>
+        )}
         {checking ? <ActivityIndicator color={colors.accent} style={{ marginTop: 10 }} /> : null}
       </View>
 
@@ -262,7 +281,7 @@ export default function ProfileScreen() {
             ]}
           />
         </View>
-        <Row label="Вібровідгук" value={state.settings.haptics} onChange={(v) => dispatch({ type: 'settings', settings: { haptics: v } })} />
+        {Platform.OS !== 'web' ? <Row label="Вібровідгук" value={state.settings.haptics} onChange={(v) => dispatch({ type: 'settings', settings: { haptics: v } })} /> : null}
         <Row label="Демо-режим" value={api.demo} disabled={!(state.settings.apiKey || ENV_API_KEY)} onChange={(v) => dispatch({ type: 'settings', settings: { demo: v } })} />
         <Pressable onPress={reset} style={styles.danger}>
           <Ionicons name="trash-outline" size={18} color={colors.nope} />

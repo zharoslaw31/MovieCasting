@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
 import React, { useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Chip, GhostButton, GradientButton, SectionTitle } from '../components/ui';
 import { COUNTRIES, GENRES, LANGUAGES } from '../lib/genres';
+import { goBack } from '../lib/nav';
 import { useStore } from '../lib/store';
 import { DEFAULT_FILTERS, Filters, SortBy } from '../lib/types';
 import { colors, radius } from '../theme';
@@ -55,7 +55,7 @@ export default function FiltersScreen() {
 
   const apply = () => {
     dispatch({ type: 'filters', filters: f });
-    router.back();
+    goBack();
   };
 
   const stepYear = (key: 'yearFrom' | 'yearTo', delta: number) => {
@@ -67,7 +67,7 @@ export default function FiltersScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + 8 }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} hitSlop={12}>
+        <Pressable onPress={() => goBack()} hitSlop={12}>
           <Ionicons name="close" size={28} color={colors.text} />
         </Pressable>
         <Text style={styles.title}>Фільтри</Text>
@@ -150,7 +150,7 @@ export default function FiltersScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: Math.max(insets.bottom, 16) }]}>
-        <GhostButton title="Скасувати" onPress={() => router.back()} style={{ flex: 1 }} />
+        <GhostButton title="Скасувати" onPress={() => goBack()} style={{ flex: 1 }} />
         <GradientButton title="Показати фільми" icon="sparkles" onPress={apply} style={{ flex: 2 }} />
       </View>
     </View>

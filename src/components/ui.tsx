@@ -113,6 +113,7 @@ export function GradientButton({
   colorsPair = gradients.brand,
   style,
   small,
+  tight,
 }: {
   title: string;
   onPress?: () => void;
@@ -120,22 +121,28 @@ export function GradientButton({
   colorsPair?: readonly [string, string];
   style?: StyleProp<ViewStyle>;
   small?: boolean;
+  /** менші бокові відступи — для рядка з кількох кнопок */
+  tight?: boolean;
 }) {
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [{ borderRadius: radius.pill, overflow: 'hidden', opacity: pressed ? 0.85 : 1 }, style]}>
-      <LinearGradient colors={colorsPair} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.gbtn, small && { paddingVertical: 10, paddingHorizontal: 16 }]}>
+      <LinearGradient colors={colorsPair} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={[styles.gbtn, small && { paddingVertical: 10, paddingHorizontal: 16 }, tight && { paddingHorizontal: 12 }]}>
         {icon ? <Ionicons name={icon} size={small ? 16 : 18} color="#fff" style={{ marginRight: 8 }} /> : null}
-        <Text style={[styles.gbtnText, small && { fontSize: 14 }]}>{title}</Text>
+        <Text style={[styles.gbtnText, small && { fontSize: 14 }]} numberOfLines={1}>
+          {title}
+        </Text>
       </LinearGradient>
     </Pressable>
   );
 }
 
-export function GhostButton({ title, onPress, icon, style }: { title: string; onPress?: () => void; icon?: IconName; style?: StyleProp<ViewStyle> }) {
+export function GhostButton({ title, onPress, icon, style, tight }: { title: string; onPress?: () => void; icon?: IconName; style?: StyleProp<ViewStyle>; tight?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.ghost, pressed && { opacity: 0.7 }, style]}>
+    <Pressable onPress={onPress} style={({ pressed }) => [styles.ghost, tight && { paddingHorizontal: 12 }, pressed && { opacity: 0.7 }, style]}>
       {icon ? <Ionicons name={icon} size={18} color={colors.text} style={{ marginRight: 8 }} /> : null}
-      <Text style={styles.gbtnText}>{title}</Text>
+      <Text style={styles.gbtnText} numberOfLines={1}>
+        {title}
+      </Text>
     </Pressable>
   );
 }
@@ -186,7 +193,18 @@ export function Segmented<T extends string>({
   );
 }
 
+/** Коротке повідомлення внизу екрана. */
+export function Toast({ text, bottom }: { text: string; bottom: number }) {
+  return (
+    <View pointerEvents="none" style={[styles.toast, { bottom }]}>
+      <Text style={styles.toastText}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  toast: { position: 'absolute', alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 10, borderRadius: radius.pill, backgroundColor: 'rgba(30,30,46,0.97)', borderWidth: 1, borderColor: colors.border, zIndex: 20, maxWidth: '90%' },
+  toastText: { color: colors.text, fontWeight: '700', fontSize: 14, textAlign: 'center' },
   center: { alignItems: 'center', justifyContent: 'center', padding: 8 },
   posterFallback: { color: colors.textMuted, fontSize: 12, marginTop: 6, textAlign: 'center' },
   chip: {

@@ -45,6 +45,7 @@ type Action =
   | { type: 'undo' }
   | { type: 'toggleLike'; movie: Movie }
   | { type: 'toggleWatched'; movie: Movie }
+  | { type: 'toggleDislike'; movie: Movie }
   | { type: 'rate'; id: number; rating: number }
   | { type: 'remove'; id: number; list: ListName }
   | { type: 'removeMany'; ids: number[]; list: ListName }
@@ -139,6 +140,10 @@ function reducer(s: State, a: Action): State {
       return has(s.watched, a.movie.id)
         ? { ...s, watched: without(s.watched, a.movie.id) }
         : { ...s, watched: [{ movie: a.movie, at: Date.now() }, ...s.watched] };
+    case 'toggleDislike':
+      return has(s.disliked, a.movie.id)
+        ? { ...s, disliked: without(s.disliked, a.movie.id) }
+        : { ...s, disliked: [{ movie: a.movie, at: Date.now() }, ...s.disliked], liked: without(s.liked, a.movie.id) };
     case 'rate':
       return { ...s, watched: s.watched.map((e) => (e.movie.id === a.id ? { ...e, myRating: a.rating } : e)) };
     case 'remove':
@@ -203,6 +208,7 @@ type Ctx = {
   seen: Set<number>;
   isLiked: (id: number) => boolean;
   isWatched: (id: number) => boolean;
+  isDisliked: (id: number) => boolean;
   hasKey: boolean;
   api: { apiKey: string; language: Settings['language']; demo: boolean };
   swipe: (movie: Movie, kind: SwipeKind) => void;
@@ -232,7 +238,8 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
   const value = useMemo<Ctx>(() => {
     const likedIds = new Set(state.liked.map((e) => e.movie.id));
     const watchedIds = new Set(state.watched.map((e) => e.movie.id));
-    const seen = new Set<number>([...likedIds, ...watchedIds, ...state.disliked.map((e) => e.movie.id)]);
+    const dislikedIds = new Set(state.disliked.map((e) => e.movie.id));
+    const seen = new Set<number>([...likedIds, ...watchedIds, ...dislikedIds]);
     const hasKey = !!(state.settings.apiKey || ENV_API_KEY);
     return {
       state,
@@ -240,6 +247,7 @@ export function StoreProvider({ children }: { children: React.ReactNode }) {
       seen,
       isLiked: (id) => likedIds.has(id),
       isWatched: (id) => watchedIds.has(id),
+      isDisliked: (id) => dislikedIds.has(id),
       hasKey,
       api: { apiKey: state.settings.apiKey, language: state.settings.language, demo: state.settings.demo || !hasKey },
       swipe: (movie, kind) => dispatch({ type: 'swipe', movie, kind }),

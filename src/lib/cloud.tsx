@@ -23,7 +23,30 @@ const supabase: SupabaseClient | null = cloudEnabled
     })
   : null;
 
+const SITE_URL = Platform.OS === 'web' && typeof location !== 'undefined' ? `${location.origin}/MovieCasting/` : 'https://zharoslaw31.github.io/MovieCasting/';
+
+/**
+ * Посилання з листа (підтвердження email / відновлення пароля) повертає на сайт
+ * з токенами в адресі після «#». Забираємо їх одразу при завантаженні і чистимо адресу.
+ */
+const urlAuth = (() => {
+  if (Platform.OS !== 'web' || typeof location === 'undefined' || !location.hash) return null;
+  const h = new URLSearchParams(location.hash.replace(/^#/, ''));
+  const access_token = h.get('access_token');
+  const refresh_token = h.get('refresh_token');
+  const error = h.get('error_description');
+  if (!access_token && !error) return null;
+  try {
+    history.replaceState(null, '', location.pathname + location.search);
+  } catch {}
+  return { access_token, refresh_token, type: h.get('type'), error };
+})();
+
 type Row = { data: SyncData; updated_at: string };
+
+/** Чи є на пристрої зміни, зроблені після останньої синхронізації. */
+const changedSince = (d: SyncData, t: number) =>
+  [...d.liked, ...d.watched, ...d.disliked].some((e) => e.at > t) || d.history.some((h) => h.at > t);
 
 async function pull(userId: string): Promise<Row | null> {
   const { data, error } = await supabase!.from('libraries').select('data, updated_at').eq('user_id', userId).maybeSingle();
@@ -49,16 +72,27 @@ type AuthCtx = {
   signUp: (email: string, password: string) => Promise<string | null>;
   signOut: () => Promise<void>;
   syncNow: () => void;
+  resetPassword: (email: string) => Promise<string | null>;
+  /** true — користувач прийшов за посиланням «відновити пароль» і має задати новий */
+  recovery: boolean;
+  updatePassword: (password: string) => Promise<string | null>;
+  cancelRecovery: () => void;
+  /** повідомлення після переходу за посиланням з листа */
+  notice: { text: string; ok: boolean } | null;
+  clearNotice: () => void;
 };
 
 const Ctx = createContext<AuthCtx | null>(null);
 
 const humanError = (msg: string) => {
+  if (/expired|invalid.*link|link.*invalid/i.test(msg)) return 'Посилання застаріло — надішліть лист ще раз';
   if (/invalid login/i.test(msg)) return 'Невірний email або пароль';
   if (/already registered|already been registered/i.test(msg)) return 'Такий email уже зареєстровано — увійдіть';
   if (/password should be at least/i.test(msg)) return 'Пароль має містити щонайменше 6 символів';
   if (/email.*invalid|invalid.*email/i.test(msg)) return 'Перевірте email';
-  if (/confirm/i.test(msg)) return 'Підтвердьте email за посиланням у листі';
+  if (/rate limit|too many/i.test(msg)) return 'Забагато спроб — зачекайте хвилину';
+  if (/same.*password|different from the old/i.test(msg)) return 'Новий пароль має відрізнятися від старого';
+  if (/not confirmed|confirm/i.test(msg)) return 'Підтвердьте email за посиланням у листі';
   if (/fetch|network/i.test(msg)) return 'Немає з’єднання з сервером';
   return msg;
 };
@@ -73,11 +107,36 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
   stateRef.current = state;
   const lastPushedJson = useRef<string>('');
   const linking = useRef(false);
+  const [recovery, setRecovery] = useState(false);
+  const [notice, setNoticeRaw] = useState<{ text: string; ok: boolean } | null>(null);
+  const setNotice = (text: string, ok = false) => setNoticeRaw({ text, ok });
 
   useEffect(() => {
     if (!supabase) return;
     supabase.auth.getSession().then(({ data }) => setSession(data.session));
-    const { data } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
+    const { data } = supabase.auth.onAuthStateChange((e, s) => {
+      setSession(s);
+      if (e === 'PASSWORD_RECOVERY') setRecovery(true);
+    });
+    // роутер під час старту повертає адресу з токенами — чистимо ще кілька разів
+    if (urlAuth) {
+      const clean = () => {
+        if (typeof location !== 'undefined' && /access_token|error_description/.test(location.hash)) {
+          try {
+            history.replaceState(history.state, '', location.pathname + location.search);
+          } catch {}
+        }
+      };
+      [300, 1000, 2500].forEach((ms) => setTimeout(clean, ms));
+    }
+    if (urlAuth?.error) setNotice(humanError(urlAuth.error));
+    else if (urlAuth?.access_token && urlAuth.refresh_token) {
+      supabase.auth.setSession({ access_token: urlAuth.access_token, refresh_token: urlAuth.refresh_token }).then(({ error: e }) => {
+        if (e) setNotice(humanError(e.message));
+        else if (urlAuth.type === 'recovery') setRecovery(true);
+        else setNotice('Email підтверджено — ви увійшли в акаунт', true);
+      });
+    }
     return () => data.subscription.unsubscribe();
   }, []);
 
@@ -94,8 +153,10 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
       let next: SyncData;
       if (!row) next = local;
       else if (s.cloudUserId === userId) {
-        // дані цього акаунта вже на пристрої: беремо новіші
-        next = new Date(row.updated_at).getTime() > (s.lastSyncAt ?? 0) ? row.data : local;
+        // дані цього акаунта вже на пристрої
+        const last = s.lastSyncAt ?? 0;
+        if (new Date(row.updated_at).getTime() <= last) next = local; // у хмарі нічого нового
+        else next = changedSince(local, last) ? mergeSync(local, row.data) : row.data; // змінювали і тут, і на іншому пристрої — об'єднуємо
       } else if (s.cloudUserId) next = row.data; // на пристрої були дані іншого акаунта
       else next = mergeSync(local, row.data); // гостьові дані + акаунт
       const at = JSON.stringify(next) === JSON.stringify(row?.data) ? new Date(row!.updated_at).getTime() : await push(userId, next);
@@ -120,10 +181,17 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
     if (!userId) return;
     const sub = AppState.addEventListener('change', (st) => st === 'active' && link());
     const onVis = () => typeof document !== 'undefined' && document.visibilityState === 'visible' && link();
-    if (Platform.OS === 'web') document.addEventListener('visibilitychange', onVis);
+    const onOnline = () => link(); // з'явився інтернет — дозберігаємо
+    if (Platform.OS === 'web') {
+      document.addEventListener('visibilitychange', onVis);
+      window.addEventListener('online', onOnline);
+    }
     return () => {
       sub.remove();
-      if (Platform.OS === 'web') document.removeEventListener('visibilitychange', onVis);
+      if (Platform.OS === 'web') {
+        document.removeEventListener('visibilitychange', onVis);
+        window.removeEventListener('online', onOnline);
+      }
     };
   }, [userId, link]);
 
@@ -165,8 +233,10 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
         email: email.trim(),
         password,
         // посилання з листа веде назад на сайт
-        options: Platform.OS === 'web' ? { emailRedirectTo: `${location.origin}/MovieCasting/` } : undefined,
+        options: { emailRedirectTo: SITE_URL },
       });
+      // Supabase не каже, що email уже зайнятий (захист від перебору), а повертає користувача без ролей
+      if (!e && !data.session && data.user && !data.user.identities?.length) return 'Такий email уже зареєстровано — увійдіть';
       if (e) return humanError(e.message);
       if (!data.session) return 'Ми надіслали лист — натисніть посилання в ньому, потім поверніться сюди й увійдіть';
       return null;
@@ -184,6 +254,23 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
       setStatus('idle');
     },
     syncNow: () => link(),
+    resetPassword: async (email) => {
+      if (!supabase) return 'Хмара не налаштована';
+      const { error: e } = await supabase.auth.resetPasswordForEmail(email.trim(), { redirectTo: SITE_URL });
+      return e ? humanError(e.message) : null;
+    },
+    recovery,
+    updatePassword: async (password) => {
+      if (!supabase) return 'Хмара не налаштована';
+      const { error: e } = await supabase.auth.updateUser({ password });
+      if (e) return humanError(e.message);
+      setRecovery(false);
+      setNotice('Пароль змінено', true);
+      return null;
+    },
+    cancelRecovery: () => setRecovery(false),
+    notice,
+    clearNotice: () => setNoticeRaw(null),
   };
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

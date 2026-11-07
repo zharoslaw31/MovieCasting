@@ -3,7 +3,7 @@ import { router } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, FlatList, Pressable, ScrollView, StyleSheet, Text, TextInput, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Chip, GradientButton, Poster, RatingBadge, Segmented } from '../../components/ui';
+import { Chip, GhostButton, GradientButton, Poster, RatingBadge, Segmented } from '../../components/ui';
 import { genreEmoji, genreName } from '../../lib/genres';
 import { ListName, useHaptics, useStore } from '../../lib/store';
 import { year } from '../../lib/tmdb';
@@ -185,7 +185,7 @@ export default function LibraryScreen() {
         keyExtractor={(e) => String(e.movie.id)}
         columnWrapperStyle={view === 'grid' ? { gap } : undefined}
         contentContainerStyle={{ paddingHorizontal: 16, paddingTop: 6, paddingBottom: bottomPad + (selecting ? 80 : 20), gap }}
-        ListEmptyComponent={<Empty tab={tab} filtered={!!query || !!genre || hideWatched} />}
+        ListEmptyComponent={<Empty tab={tab} filtered={!!query || !!genre || hideWatched} query={query} />}
         renderItem={({ item }) => {
           const sel = selected.has(item.movie.id);
           if (view === 'list') {
@@ -388,7 +388,7 @@ function UndoBar({ bottom, text, onUndo }: { bottom: number; text: string; onUnd
   );
 }
 
-function Empty({ tab, filtered }: { tab: ListName; filtered: boolean }) {
+function Empty({ tab, filtered, query }: { tab: ListName; filtered: boolean; query: string }) {
   const text = filtered
     ? 'Нічого не знайдено. Спробуйте змінити пошук або фільтр.'
     : tab === 'liked'
@@ -401,6 +401,14 @@ function Empty({ tab, filtered }: { tab: ListName; filtered: boolean }) {
       <Text style={{ fontSize: 46 }}>{filtered ? '🔍' : tab === 'liked' ? '💘' : tab === 'watched' ? '🍿' : '🗑️'}</Text>
       <Text style={styles.emptyText}>{text}</Text>
       {!filtered && tab !== 'disliked' ? <GradientButton title="До кастингу" icon="flame" small onPress={() => router.push('/')} style={{ marginTop: 16 }} colorsPair={gradients.brand} /> : null}
+      {tab !== 'disliked' ? (
+        <GhostButton
+          title={query.trim() ? `Шукати «${query.trim()}» у всій базі` : 'Знайти фільм у базі'}
+          icon="search"
+          onPress={() => router.push(query.trim() ? `/search?q=${encodeURIComponent(query.trim())}` : '/search')}
+          style={{ marginTop: 10 }}
+        />
+      ) : null}
     </View>
   );
 }

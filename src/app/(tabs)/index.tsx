@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SwipeDeck, SwipeDeckHandle } from '../../components/SwipeDeck';
 import { GradientButton, GhostButton, RoundButton } from '../../components/ui';
@@ -102,6 +102,27 @@ export default function CastingScreen() {
     setQueue((q) => [m, ...q.filter((x) => x.id !== m.id)]);
   };
 
+  // клавіатура на комп'ютері: ← ні, → подобається, ↑ бачив, Backspace — скасувати
+  const undoRef = useRef(undo);
+  undoRef.current = undo;
+  useEffect(() => {
+    if (Platform.OS !== 'web') return;
+    const onKey = (e: KeyboardEvent) => {
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA')) return;
+      if (!location.pathname.replace(/\/+$/, '').endsWith('/MovieCasting') && location.pathname !== '/') return;
+      if (e.key === 'ArrowRight') deck.current?.swipe('like');
+      else if (e.key === 'ArrowLeft') deck.current?.swipe('nope');
+      else if (e.key === 'ArrowUp') deck.current?.swipe('watched');
+      else if (e.key === 'Backspace') undoRef.current();
+      else return;
+      e.preventDefault();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, []);
+
+  const { width } = useWindowDimensions();
   const activeFilters = countActiveFilters(state.filters);
   const bottomPad = TAB_BAR_HEIGHT + Math.max(insets.bottom, 12) + 12;
 
@@ -109,12 +130,15 @@ export default function CastingScreen() {
     <View style={[styles.screen, { paddingTop: insets.top + 6 }]}>
       <View style={styles.header}>
         <View>
-          <Text style={styles.logo}>
+          <Text style={[styles.logo, width < 380 && { fontSize: 22 }]}>
             Movie<Text style={{ color: colors.accent }}>Casting</Text>
           </Text>
           <Text style={styles.sub}>{api.demo ? 'Демо-режим · додайте ключ у Профілі' : state.filters.sortBy === 'random' ? 'Випадкові фільми з усієї бази' : 'Свайпай і знаходь своє кіно'}</Text>
         </View>
-        <View style={{ flexDirection: 'row', gap: 10 }}>
+        <View style={{ flexDirection: 'row', gap: 8 }}>
+        <Pressable accessibilityLabel="Пошук фільму" onPress={() => router.push('/search')} style={({ pressed }) => [styles.filterBtn, pressed && { opacity: 0.7 }]}>
+          <Ionicons name="search" size={21} color={colors.text} />
+        </Pressable>
         <Pressable
           accessibilityLabel="Перемішати"
           onPress={() => {
@@ -170,6 +194,19 @@ export default function CastingScreen() {
         )}
       </View>
 
+      {state.ready && !state.settings.onboarded && queue.length ? (
+        <Pressable style={styles.tipWrap} onPress={() => dispatch({ type: 'settings', settings: { onboarded: true } })}>
+          <View style={styles.tip}>
+            <Text style={styles.tipTitle}>Як це працює</Text>
+            <TipRow icon="arrow-forward" color={colors.like} text="Свайп вправо — подобається, фільм піде в Обране" />
+            <TipRow icon="arrow-back" color={colors.nope} text="Свайп вліво — не цікаво, більше не покажемо" />
+            <TipRow icon="arrow-up" color={colors.watched} text="Свайп вгору — вже бачив, можна оцінити" />
+            <TipRow icon="information-circle-outline" color={colors.textDim} text="Тап по картці — опис, трейлер, актори, де подивитись" />
+            <GradientButton title="Зрозуміло" icon="checkmark" onPress={() => dispatch({ type: 'settings', settings: { onboarded: true } })} style={{ marginTop: 16 }} />
+          </View>
+        </Pressable>
+      ) : null}
+
       <View style={[styles.actions, { paddingBottom: bottomPad }]}>
         <RoundButton icon="arrow-undo" size={48} color={colors.gold} onPress={undo} disabled={!lastMovie.current.length} />
         <RoundButton icon="close" size={66} color={colors.nope} onPress={() => deck.current?.swipe('nope')} disabled={!queue.length} iconSize={34} />
@@ -180,15 +217,32 @@ export default function CastingScreen() {
   );
 }
 
+function TipRow({ icon, color, text }: { icon: React.ComponentProps<typeof Ionicons>['name']; color: string; text: string }) {
+  return (
+    <View style={styles.tipRow}>
+      <View style={[styles.tipIcon, { backgroundColor: color + '26' }]}>
+        <Ionicons name={icon} size={18} color={color} />
+      </View>
+      <Text style={styles.tipText}>{text}</Text>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  tipWrap: { ...StyleSheet.absoluteFill, backgroundColor: 'rgba(5,5,10,0.72)', alignItems: 'center', justifyContent: 'center', padding: 22, zIndex: 30 },
+  tip: { width: '100%', maxWidth: 420, backgroundColor: colors.bgElevated, borderRadius: radius.xl, padding: 20, borderWidth: 1, borderColor: colors.border },
+  tipTitle: { color: colors.text, fontSize: 20, fontWeight: '900', marginBottom: 12 },
+  tipRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 10 },
+  tipIcon: { width: 34, height: 34, borderRadius: 17, alignItems: 'center', justifyContent: 'center' },
+  tipText: { flex: 1, color: colors.textDim, fontSize: 14, lineHeight: 19, fontWeight: '600' },
   screen: { flex: 1, backgroundColor: colors.bg },
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 20 },
   logo: { color: colors.text, fontSize: 26, fontWeight: '900', letterSpacing: -0.5 },
   sub: { color: colors.textMuted, fontSize: 13, marginTop: 2, fontWeight: '600' },
   filterBtn: {
-    width: 46,
-    height: 46,
-    borderRadius: 23,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.bgElevated,

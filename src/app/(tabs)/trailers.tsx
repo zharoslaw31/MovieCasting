@@ -3,12 +3,13 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router, useIsFocused } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, useWindowDimensions, FlatList, Linking, Pressable, Share, StyleSheet, Text, View, ListViewToken } from 'react-native';
+import { ActivityIndicator, useWindowDimensions, FlatList, Pressable, StyleSheet, Text, View, ListViewToken } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { FeedPlayer, USES_FEED_PLAYER } from '../../components/FeedPlayer';
 import { TrailerPlayer } from '../../components/TrailerPlayer';
 import { GradientButton } from '../../components/ui';
 import { genreName } from '../../lib/genres';
+import { shareMovie } from '../../lib/share';
 import { useHaptics, useStore } from '../../lib/store';
 import { createFeedPager, FeedKind, IMG, Pager, trailerKey, year } from '../../lib/tmdb';
 import { Movie } from '../../lib/types';
@@ -119,7 +120,14 @@ export default function TrailersScreen() {
           data={items}
           keyExtractor={(i) => String(i.movie.id)}
           renderItem={({ item, index }) => (
-            <TrailerItem item={item} height={height} active={focused && index === active} near={Math.abs(index - active) <= 1} bottomInset={TAB_BAR_HEIGHT + Math.max(insets.bottom, 12)} />
+            <TrailerItem
+              item={item}
+              height={height}
+              active={focused && index === active}
+              near={Math.abs(index - active) <= 1}
+              bottomInset={TAB_BAR_HEIGHT + Math.max(insets.bottom, 12)}
+              onNext={() => index + 1 < items.length && list.current?.scrollToIndex({ index: index + 1, animated: true })}
+            />
           )}
           pagingEnabled
           snapToInterval={height}
@@ -179,18 +187,22 @@ const TrailerItem = React.memo(function TrailerItem({
   active,
   near,
   bottomInset,
+  onNext,
 }: {
   item: Item;
   height: number;
   active: boolean;
   near: boolean;
   bottomInset: number;
+  onNext: () => void;
 }) {
   const { movie, key } = item;
-  const { isLiked, isWatched, dispatch } = useStore();
+  const { isLiked, isWatched, isDisliked, dispatch } = useStore();
   const haptic = useHaptics();
   const liked = isLiked(movie.id);
   const watched = isWatched(movie.id);
+  const disliked = isDisliked(movie.id);
+  const compact = height < 720; // на невисоких екранах — кнопки без підписів, щоб не залазили під меню
   const [started, setStarted] = useState(false);
 
   useEffect(() => {
@@ -230,6 +242,7 @@ const TrailerItem = React.memo(function TrailerItem({
 
       <View style={[styles.side, { top: videoTop + videoH + 10 }]}>
         <SideButton
+          compact={compact}
           icon={liked ? 'heart' : 'heart-outline'}
           color={liked ? colors.accent : '#fff'}
           label={liked ? 'В обраному' : 'Подобається'}
@@ -238,14 +251,20 @@ const TrailerItem = React.memo(function TrailerItem({
             haptic(liked ? 'light' : 'success');
           }}
         />
-        <SideButton icon={watched ? 'eye' : 'eye-outline'} color={watched ? colors.watched : '#fff'} label={watched ? 'Переглянуто' : 'Бачив'} onPress={() => dispatch({ type: 'toggleWatched', movie })} />
-        <SideButton icon="information-circle-outline" color="#fff" label="Про фільм" onPress={() => router.push(`/movie/${movie.id}`)} />
+        <SideButton compact={compact} icon={watched ? 'eye' : 'eye-outline'} color={watched ? colors.watched : '#fff'} label={watched ? 'Переглянуто' : 'Бачив'} onPress={() => dispatch({ type: 'toggleWatched', movie })} />
         <SideButton
-          icon="share-social-outline"
-          color="#fff"
-          label="Поділитись"
-          onPress={() => Share.share({ message: `${movie.title} (${year(movie)}) — трейлер: https://youtu.be/${key}` }).catch(() => Linking.openURL(`https://www.youtube.com/watch?v=${key}`))}
+          compact={compact}
+          icon="close"
+          color={disliked ? colors.nope : '#fff'}
+          label="Не цікаво"
+          onPress={() => {
+            dispatch({ type: 'toggleDislike', movie });
+            haptic('light');
+            if (!disliked) setTimeout(onNext, 250);
+          }}
         />
+        <SideButton compact={compact} icon="information-circle-outline" color="#fff" label="Про фільм" onPress={() => router.push(`/movie/${movie.id}`)} />
+        <SideButton compact={compact} icon="share-social-outline" color="#fff" label="Поділитись" onPress={() => shareMovie(movie)} />
       </View>
 
       <View style={[styles.info, { bottom: bottomInset + 20 }]}>
@@ -274,13 +293,13 @@ const TrailerItem = React.memo(function TrailerItem({
   );
 });
 
-function SideButton({ icon, color, label, onPress }: { icon: React.ComponentProps<typeof Ionicons>['name']; color: string; label: string; onPress: () => void }) {
+function SideButton({ icon, color, label, onPress, compact }: { icon: React.ComponentProps<typeof Ionicons>['name']; color: string; label: string; onPress: () => void; compact?: boolean }) {
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.sideBtn, pressed && { transform: [{ scale: 0.9 }] }]}>
+    <Pressable onPress={onPress} accessibilityLabel={label} style={({ pressed }) => [styles.sideBtn, pressed && { transform: [{ scale: 0.9 }] }]}>
       <View style={styles.sideIcon}>
         <Ionicons name={icon} size={25} color={color} />
       </View>
-      <Text style={styles.sideLabel}>{label}</Text>
+      {compact ? null : <Text style={styles.sideLabel}>{label}</Text>}
     </Pressable>
   );
 }
