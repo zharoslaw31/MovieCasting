@@ -4,47 +4,105 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { colors } from '../theme';
 
 /**
- * Один постійний YouTube-плеєр для стрічки трейлерів у браузері.
- * Браузери (особливо iPhone) не дозволяють автозапуск зі звуком, доки людина
- * не торкнеться сторінки. Тому: перший трейлер стартує без звуку, після першого
- * дотику вмикаємо звук — і далі той самий плеєр просто перемикає відео
- * (loadVideoById), зберігаючи звук для всіх наступних трейлерів.
+ * Один постійний плеєр YouTube (офіційний IFrame API) для стрічки трейлерів у браузері.
+ * Браузери не дозволяють автозапуск зі звуком, доки людина не торкнеться сторінки.
+ * Тому: перший трейлер стартує без звуку, перший дотик будь-де вмикає звук,
+ * і далі той самий плеєр перемикає відео (loadVideoById) — звук лишається.
  */
-type Props = {
-  videoKey: string | null;
-  top: number;
-  height: number;
-  visible: boolean;
-  playing: boolean;
-};
+type Props = { videoKey: string | null; top: number; height: number; visible: boolean; playing: boolean };
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+declare global {
+  interface Window {
+    YT?: any;
+    onYouTubeIframeAPIReady?: () => void;
+  }
+}
+
+let apiPromise: Promise<any> | null = null;
+function loadYouTubeApi(): Promise<any> {
+  if (window.YT?.Player) return Promise.resolve(window.YT);
+  if (!apiPromise) {
+    apiPromise = new Promise((resolve) => {
+      const prev = window.onYouTubeIframeAPIReady;
+      window.onYouTubeIframeAPIReady = () => {
+        prev?.();
+        resolve(window.YT);
+      };
+      const s = document.createElement('script');
+      s.src = 'https://www.youtube.com/iframe_api';
+      s.async = true;
+      document.head.appendChild(s);
+    });
+  }
+  return apiPromise;
+}
 
 let soundUnlocked = false;
 
 export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
-  const frame = useRef<HTMLIFrameElement | null>(null);
-  const [initialKey] = useState(videoKey);
-  const [ready, setReady] = useState(false);
+  const host = useRef<HTMLDivElement | null>(null);
+  const player = useRef<any>(null);
+  const readyRef = useRef(false);
+  const currentKey = useRef<string | null>(null);
   const [muted, setMuted] = useState(!soundUnlocked);
-  const currentKey = useRef(initialKey);
-  // src фіксуємо один раз: зміна src перезавантажила б плеєр і скинула звук
-  const [src] = useState(() => {
-    const origin = typeof window !== 'undefined' ? window.location.origin : '';
-    return `https://www.youtube.com/embed/${initialKey}?enablejsapi=1&autoplay=1&playsinline=1&rel=0&modestbranding=1&controls=1&mute=${soundUnlocked ? 0 : 1}&origin=${encodeURIComponent(origin)}`;
-  });
+  const mutedRef = useRef(muted);
+  mutedRef.current = muted;
+  const wantPlay = useRef(playing && visible);
+  wantPlay.current = playing && visible;
 
-  const send = (func: string, args: unknown[] = []) => {
-    frame.current?.contentWindow?.postMessage(JSON.stringify({ event: 'command', func, args }), '*');
+  const applySound = () => {
+    const p = player.current;
+    if (!p || !readyRef.current) return;
+    if (mutedRef.current) p.mute();
+    else {
+      p.unMute();
+      p.setVolume(100);
+    }
   };
 
-  // Перше торкання будь-де на сторінці «розблоковує» звук
+  // створюємо плеєр один раз
+  useEffect(() => {
+    let cancelled = false;
+    loadYouTubeApi().then((YT) => {
+      if (cancelled || !host.current || !videoKey) return;
+      const el = document.createElement('div');
+      host.current.appendChild(el);
+      currentKey.current = videoKey;
+      player.current = new YT.Player(el, {
+        width: '100%',
+        height: '100%',
+        videoId: videoKey,
+        playerVars: { autoplay: 1, playsinline: 1, rel: 0, modestbranding: 1, controls: 1, mute: soundUnlocked ? 0 : 1, origin: window.location.origin },
+        events: {
+          onReady: () => {
+            readyRef.current = true;
+            applySound();
+            if (wantPlay.current) player.current.playVideo();
+          },
+        },
+      });
+    });
+    return () => {
+      cancelled = true;
+      try {
+        player.current?.destroy();
+      } catch {}
+      player.current = null;
+      readyRef.current = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // перший дотик будь-де вмикає звук (дозвіл браузера на звук)
   useEffect(() => {
     if (soundUnlocked) return;
     const unlock = () => {
       soundUnlocked = true;
+      mutedRef.current = false;
       setMuted(false);
-      send('unMute');
-      send('setVolume', [100]);
-      send('playVideo');
+      applySound();
+      if (wantPlay.current) player.current?.playVideo?.();
       window.removeEventListener('pointerdown', unlock, true);
       window.removeEventListener('touchend', unlock, true);
     };
@@ -54,66 +112,40 @@ export function FeedPlayer({ videoKey, top, height, visible, playing }: Props) {
       window.removeEventListener('pointerdown', unlock, true);
       window.removeEventListener('touchend', unlock, true);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Повідомлення від плеєра: чекаємо готовності
+  // наступний трейлер — у тому ж плеєрі, зі звуком
   useEffect(() => {
-    const onMsg = (e: MessageEvent) => {
-      if (typeof e.data !== 'string' || !e.origin.includes('youtube')) return;
-      try {
-        const d = JSON.parse(e.data);
-        if (d.event === 'onReady' || d.event === 'initialDelivery') setReady(true);
-      } catch {}
-    };
-    window.addEventListener('message', onMsg);
-    return () => window.removeEventListener('message', onMsg);
-  }, []);
-
-  // Перемикання відео в тому самому плеєрі (звук зберігається)
-  useEffect(() => {
-    if (!videoKey || !ready || videoKey === currentKey.current) return;
+    const p = player.current;
+    if (!p || !readyRef.current || !videoKey || videoKey === currentKey.current) return;
     currentKey.current = videoKey;
-    send('loadVideoById', [videoKey]);
-    if (!muted) send('unMute');
-  }, [videoKey, ready, muted]);
+    p.loadVideoById(videoKey);
+    applySound();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [videoKey]);
 
   useEffect(() => {
-    if (!ready) return;
+    const p = player.current;
+    if (!p || !readyRef.current) return;
     if (playing && visible) {
-      send('playVideo');
-      if (!muted) send('unMute');
-    } else send('pauseVideo');
-  }, [playing, visible, ready, muted]);
+      applySound();
+      p.playVideo();
+    } else p.pauseVideo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [playing, visible]);
 
   const toggleSound = () => {
     soundUnlocked = true;
-    if (muted) {
-      send('unMute');
-      send('setVolume', [100]);
-      send('playVideo');
-    } else send('mute');
+    mutedRef.current = !muted;
     setMuted(!muted);
+    applySound();
+    if (!mutedRef.current) player.current?.playVideo?.();
   };
 
-  if (!initialKey) return null;
-
   return (
-    <View
-      pointerEvents={visible ? 'box-none' : 'none'}
-      style={[styles.wrap, { top, height, opacity: visible ? 1 : 0 }]}
-    >
-      {React.createElement('iframe', {
-        ref: frame,
-        src,
-        onLoad: () => {
-          // «підписуємось» на події плеєра
-          frame.current?.contentWindow?.postMessage(JSON.stringify({ event: 'listening', id: 'feed' }), '*');
-          setTimeout(() => setReady(true), 800);
-        },
-        style: { width: '100%', height: '100%', border: 0, background: '#000' },
-        allow: 'autoplay; encrypted-media; picture-in-picture; fullscreen',
-        allowFullScreen: true,
-      })}
+    <View pointerEvents={visible ? 'box-none' : 'none'} style={[styles.wrap, { top, height, opacity: visible ? 1 : 0 }]}>
+      {React.createElement('div', { ref: host, style: { position: 'absolute', inset: 0, background: '#000' } })}
       <Pressable onPress={toggleSound} style={styles.sound} hitSlop={8} accessibilityLabel={muted ? 'Увімкнути звук' : 'Вимкнути звук'}>
         <Ionicons name={muted ? 'volume-mute' : 'volume-high'} size={18} color="#fff" />
         {muted ? <Text style={styles.soundText}>Увімкнути звук</Text> : null}
