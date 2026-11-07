@@ -16,6 +16,9 @@ type Props = {
   onOpen: (movie: Movie) => void;
 };
 
+// На вебі забороняємо браузеру прокручувати сторінку, коли тягнемо картку пальцем.
+const WEB_NO_SCROLL = { dataSet: { swipeCard: 'true' } } as object;
+
 const SWIPE_X = 110;
 const SWIPE_Y = 120;
 
@@ -78,7 +81,7 @@ export const SwipeDeck = forwardRef<SwipeDeckHandle, Props>(function SwipeDeck({
   const visible = movies.slice(0, 3);
 
   return (
-    <View style={styles.deck}>
+    <View style={styles.deck} {...WEB_NO_SCROLL}>
       {visible
         .map((m, i) => {
           if (i === 0) {

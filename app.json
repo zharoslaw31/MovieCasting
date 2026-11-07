@@ -23,7 +23,12 @@
     "web": {
       "favicon": "./assets/favicon.png",
       "bundler": "metro",
-      "output": "single"
+      "output": "single",
+      "name": "MovieCasting",
+      "shortName": "MovieCasting",
+      "lang": "uk",
+      "themeColor": "#0A0A12",
+      "backgroundColor": "#0A0A12"
     },
     "plugins": [
       "expo-router",
@@ -33,7 +38,8 @@
     "scheme": "moviecasting",
     "backgroundColor": "#0A0A12",
     "experiments": {
-      "typedRoutes": false
+      "typedRoutes": false,
+      "baseUrl": "/MovieCasting"
     }
   }
 }

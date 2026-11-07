@@ -1,0 +1,16 @@
+{
+  "name": "MovieCasting",
+  "short_name": "MovieCasting",
+  "description": "Підбирай фільми свайпами, дивись трейлери і веди свою кінобібліотеку.",
+  "lang": "uk",
+  "start_url": "/MovieCasting/",
+  "scope": "/MovieCasting/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0A0A12",
+  "theme_color": "#0A0A12",
+  "icons": [
+    { "src": "/MovieCasting/icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "/MovieCasting/icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

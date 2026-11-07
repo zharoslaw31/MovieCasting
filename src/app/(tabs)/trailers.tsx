@@ -183,7 +183,7 @@ const TrailerItem = React.memo(function TrailerItem({
       {near && bg ? <Image source={{ uri: bg }} style={StyleSheet.absoluteFill} blurRadius={30} contentFit="cover" /> : null}
       <LinearGradient colors={['rgba(0,0,0,0.65)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.9)']} style={StyleSheet.absoluteFill} />
 
-      <View style={[styles.video, { top: height * 0.24 }]}>
+      <View style={[styles.video, { top: Math.max(64, Math.min(height * 0.14, height - 560)) }]}>
         {active && started ? (
           <TrailerPlayer videoKey={key} />
         ) : (
@@ -214,9 +214,8 @@ const TrailerItem = React.memo(function TrailerItem({
           icon="share-social-outline"
           color="#fff"
           label="Поділитись"
-          onPress={() => Share.share({ message: `${movie.title} (${year(movie)}) — трейлер: https://youtu.be/${key}` }).catch(() => {})}
+          onPress={() => Share.share({ message: `${movie.title} (${year(movie)}) — трейлер: https://youtu.be/${key}` }).catch(() => Linking.openURL(`https://www.youtube.com/watch?v=${key}`))}
         />
-        <SideButton icon="logo-youtube" color="#fff" label="YouTube" onPress={() => Linking.openURL(`https://www.youtube.com/watch?v=${key}`)} />
       </View>
 
       <View style={[styles.info, { bottom: bottomInset + 20 }]}>
@@ -249,7 +248,7 @@ function SideButton({ icon, color, label, onPress }: { icon: React.ComponentProp
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.sideBtn, pressed && { transform: [{ scale: 0.9 }] }]}>
       <View style={styles.sideIcon}>
-        <Ionicons name={icon} size={28} color={color} />
+        <Ionicons name={icon} size={25} color={color} />
       </View>
       <Text style={styles.sideLabel}>{label}</Text>
     </Pressable>
@@ -268,11 +267,11 @@ const styles = StyleSheet.create({
   video: { position: 'absolute', left: 0, right: 0, aspectRatio: 16 / 9, backgroundColor: '#000', overflow: 'hidden' },
   playWrap: { ...StyleSheet.absoluteFill, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(0,0,0,0.25)' },
   play: { width: 68, height: 68, borderRadius: 34, backgroundColor: colors.accent + 'E6', alignItems: 'center', justifyContent: 'center' },
-  side: { position: 'absolute', right: 10, alignItems: 'center', gap: 14 },
-  sideBtn: { alignItems: 'center', width: 72 },
-  sideIcon: { width: 50, height: 50, borderRadius: 25, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
+  side: { position: 'absolute', right: 8, alignItems: 'center', gap: 8, zIndex: 5 },
+  sideBtn: { alignItems: 'center', width: 70 },
+  sideIcon: { width: 46, height: 46, borderRadius: 23, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' },
   sideLabel: { color: '#fff', fontSize: 11, fontWeight: '700', marginTop: 4, textAlign: 'center' },
-  info: { position: 'absolute', left: 16, right: 96 },
+  info: { position: 'absolute', left: 16, right: 92, zIndex: 5 },
   title: { color: '#fff', fontSize: 24, fontWeight: '900', letterSpacing: -0.3 },
   metaRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 6 },
   meta: { color: '#E5E5EF', fontSize: 13, fontWeight: '700' },
