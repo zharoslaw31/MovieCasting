@@ -5,6 +5,7 @@ import { router, useIsFocused } from 'expo-router';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, useWindowDimensions, FlatList, Linking, Pressable, Share, StyleSheet, Text, View, ListViewToken } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { FeedPlayer, USES_FEED_PLAYER } from '../../components/FeedPlayer';
 import { TrailerPlayer } from '../../components/TrailerPlayer';
 import { GradientButton } from '../../components/ui';
 import { genreName } from '../../lib/genres';
@@ -86,6 +87,18 @@ export default function TrailersScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, kind]);
 
+  const { width: winW } = useWindowDimensions();
+  const [scrolling, setScrolling] = useState(false);
+  const scrollTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onScroll = () => {
+    if (!USES_FEED_PLAYER) return;
+    setScrolling(true);
+    if (scrollTimer.current) clearTimeout(scrollTimer.current);
+    scrollTimer.current = setTimeout(() => setScrolling(false), 160);
+  };
+  const feedVideoH = (winW * 9) / 16;
+  const feedVideoTop = Math.max(64, Math.min(height * 0.12, height - feedVideoH - 360));
+
   const viewConfig = useRef({ itemVisiblePercentThreshold: 70 }).current;
   const onViewable = useRef(({ viewableItems }: { viewableItems: ListViewToken[] }) => {
     const first = viewableItems[0];
@@ -115,6 +128,8 @@ export default function TrailersScreen() {
           showsVerticalScrollIndicator={false}
           getItemLayout={(_, index) => ({ length: height, offset: height * index, index })}
           onViewableItemsChanged={onViewable}
+          onScroll={onScroll}
+          scrollEventThrottle={32}
           viewabilityConfig={viewConfig}
           windowSize={3}
           initialNumToRender={2}
@@ -141,6 +156,10 @@ export default function TrailersScreen() {
           )}
         </View>
       )}
+
+      {USES_FEED_PLAYER && height > 0 && items.length > 0 ? (
+        <FeedPlayer videoKey={items[active]?.key ?? null} top={feedVideoTop} height={feedVideoH} visible={!scrolling} playing={focused} />
+      ) : null}
 
       <View style={[styles.tabs, { top: insets.top + 8 }]} pointerEvents="box-none">
         {KINDS.map((k) => (
@@ -195,7 +214,7 @@ const TrailerItem = React.memo(function TrailerItem({
       <LinearGradient colors={['rgba(0,0,0,0.65)', 'rgba(0,0,0,0.25)', 'rgba(0,0,0,0.9)']} style={StyleSheet.absoluteFill} />
 
       <View style={[styles.video, { top: videoTop }]}>
-        {active && started ? (
+        {active && started && !USES_FEED_PLAYER ? (
           <TrailerPlayer videoKey={key} />
         ) : (
           <Pressable style={StyleSheet.absoluteFill} onPress={() => setStarted(true)}>
