@@ -29,6 +29,9 @@ import {
   watchedIn,
 } from '../../lib/series';
 import { shareMovie } from '../../lib/share';
+import { ObsidianSheet } from '../../components/ObsidianSheet';
+import { buildMovieNote, Stage } from '../../lib/movieNote';
+import { obsidianOf, saveToObsidian } from '../../lib/obsidian';
 import { useHaptics, useStore } from '../../lib/store';
 import { IMG, metaOf, seasonEpisodes, SHOW_STATUS, showDetails, toMovie } from '../../lib/tmdb';
 import { Episode, Movie, Season, ShowDetails, TrackStatus } from '../../lib/types';
@@ -59,6 +62,7 @@ export default function TvScreen() {
   const [playing, setPlaying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [solidHeader, setSolidHeader] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
   const [open, setOpen] = useState<Record<number, boolean>>({});
   const [eps, setEps] = useState<Record<number, EpState>>({});
   const [openEp, setOpenEp] = useState<string | null>(null);
@@ -603,6 +607,9 @@ export default function TvScreen() {
       </Pressable>
 
       <View style={[styles.topRight, { top: insets.top + 8 }]}>
+        <Pressable onPress={() => setSaveOpen(true)} style={styles.circle} hitSlop={8} accessibilityLabel="Зберегти в Obsidian">
+          <Ionicons name="diamond-outline" size={19} color="#fff" />
+        </Pressable>
         <Pressable onPress={share} style={styles.circle} hitSlop={8} accessibilityLabel="Поділитись">
           <Ionicons name="share-outline" size={20} color="#fff" />
         </Pressable>
@@ -644,6 +651,34 @@ export default function TvScreen() {
       ) : null}
 
       {toast && !ask ? <Toast text={toast} bottom={Math.max(insets.bottom, 14) + 84} /> : null}
+
+      <ObsidianSheet<Stage>
+        visible={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        heading={base.title}
+        stages={[
+          { value: 'want', label: 'Хочу' },
+          { value: 'now', label: 'Дивлюсь' },
+          { value: 'done', label: 'Переглянуто' },
+          { value: 'drop', label: 'Кинув' },
+        ]}
+        initial={{ stage: status === 'completed' ? 'done' : status === 'watching' ? 'now' : status === 'dropped' ? 'drop' : 'want', rating: myRating ?? null, notes: '' }}
+        ratingMax={10}
+        notesLabel="Враження"
+        notesPlaceholder="Що зачепило, яка серія найкраща (кожен рядок — окремий пункт)"
+        onSave={async (v) => {
+          const w = state.watched.find((e) => e.movie.id === id);
+          const r = await saveToObsidian(obsidianOf(state.settings.obsidian), buildMovieNote(base, d, { stage: v.stage, rating: v.rating, impressions: v.notes, watchedAt: w?.at ?? entry?.lastWatchedAt, track: entry }));
+          if (r.ok) {
+            // застосунок і база кажуть одне й те саме
+            const st: TrackStatus = v.stage === 'done' ? 'completed' : v.stage === 'now' ? 'watching' : v.stage === 'drop' ? 'dropped' : 'planned';
+            if (st !== status) dispatch({ type: 'trackStatus', show: base, status: st, meta });
+            if (v.rating && v.rating !== myRating && (w || v.stage === 'done')) dispatch({ type: 'rate', id, rating: v.rating });
+            haptic('success');
+          } else haptic('warning');
+          return r;
+        }}
+      />
 
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
         <Pressable

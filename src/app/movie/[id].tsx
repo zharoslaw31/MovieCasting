@@ -11,6 +11,9 @@ import { GhostButton, GradientButton, Poster, Toast } from '../../components/ui'
 import { genreName, languageName } from '../../lib/genres';
 import { goBack, openTitle } from '../../lib/nav';
 import { shareMovie } from '../../lib/share';
+import { ObsidianSheet } from '../../components/ObsidianSheet';
+import { buildMovieNote, Stage, stageOf } from '../../lib/movieNote';
+import { obsidianOf, saveToObsidian } from '../../lib/obsidian';
 import { useHaptics, useStore } from '../../lib/store';
 import { details, formatRuntime, IMG, toMovie, year } from '../../lib/tmdb';
 import { Movie, MovieDetails } from '../../lib/types';
@@ -28,6 +31,7 @@ export default function MovieScreen() {
   const [playing, setPlaying] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [solidHeader, setSolidHeader] = useState(false);
+  const [saveOpen, setSaveOpen] = useState(false);
   const scroll = useRef<ScrollViewInstance>(null);
 
   // поки вантажимо деталі — показуємо те, що вже є в бібліотеці
@@ -206,6 +210,9 @@ export default function MovieScreen() {
       </Pressable>
 
       <View style={[styles.topRight, { top: insets.top + 8 }]}>
+        <Pressable onPress={() => setSaveOpen(true)} style={styles.circle} hitSlop={8} accessibilityLabel="Зберегти в Obsidian">
+          <Ionicons name="diamond-outline" size={19} color="#fff" />
+        </Pressable>
         <Pressable onPress={share} style={styles.circle} hitSlop={8} accessibilityLabel="Поділитись">
           <Ionicons name="share-outline" size={20} color="#fff" />
         </Pressable>
@@ -226,6 +233,32 @@ export default function MovieScreen() {
       </View>
 
       {toast ? <Toast text={toast} bottom={Math.max(insets.bottom, 14) + 84} /> : null}
+
+      <ObsidianSheet<Stage>
+        visible={saveOpen}
+        onClose={() => setSaveOpen(false)}
+        heading={full.title}
+        stages={[
+          { value: 'want', label: 'Хочу подивитись' },
+          { value: 'done', label: 'Переглянуто' },
+        ]}
+        initial={{ stage: stageOf(full, { watched, liked }), rating: myRating ?? null, notes: '' }}
+        ratingMax={10}
+        notesLabel="Враження"
+        notesPlaceholder="Що зачепило, що запамʼятати (кожен рядок — окремий пункт)"
+        onSave={async (v) => {
+          const entry = state.watched.find((e) => e.movie.id === id);
+          const r = await saveToObsidian(obsidianOf(state.settings.obsidian), buildMovieNote(full, m, { stage: v.stage, rating: v.rating, impressions: v.notes, watchedAt: entry?.at }));
+          if (r.ok) {
+            // застосунок і база кажуть одне й те саме
+            if (v.stage === 'done' && !watched) dispatch({ type: 'toggleWatched', movie: full });
+            if (v.stage === 'want' && !liked && !watched) dispatch({ type: 'toggleLike', movie: full });
+            if (v.stage === 'done' && v.rating && v.rating !== myRating) dispatch({ type: 'rate', id, rating: v.rating });
+            haptic('success');
+          } else haptic('warning');
+          return r;
+        }}
+      />
 
       <View style={[styles.bar, { paddingBottom: Math.max(insets.bottom, 14) }]}>
         <Pressable

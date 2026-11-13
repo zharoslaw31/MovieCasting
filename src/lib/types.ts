@@ -98,6 +98,18 @@ export type Profile = {
   createdAt: number;
 };
 
+export type ObsidianMethod = 'github' | 'uri' | 'file';
+export type ObsidianOpts = {
+  method: ObsidianMethod;
+  vault: string;
+  folder: string;
+  repo: string;
+  branch: string;
+  /** ключ GitHub — лише на цьому пристрої, у хмару не йде */
+  token: string;
+  verified?: boolean;
+};
+
 export type Settings = {
   apiKey: string;
   language: 'uk-UA' | 'en-US';
@@ -106,6 +118,8 @@ export type Settings = {
   onboarded?: boolean;
   /** Кастинг: уся база або підбір «Для тебе» */
   castingMode?: 'all' | 'foryou';
+  /** збереження в базу Obsidian */
+  obsidian?: Partial<ObsidianOpts>;
   /** кімната «Кастингу удвох», у якій ви зараз */
   roomCode?: string | null;
 };

@@ -37,6 +37,7 @@ export default function RootLayout() {
             <Stack.Screen name="tonight" />
             <Stack.Screen name="together" />
             <Stack.Screen name="person/[id]" />
+            <Stack.Screen name="obsidian" />
           </Stack>
           <CloudOverlay />
         </ThemeProvider>

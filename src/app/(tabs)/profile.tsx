@@ -5,6 +5,7 @@ import { ActivityIndicator, Alert, Linking, Platform, Pressable, ScrollView, Sty
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { effectiveStatus, watchedCount } from '../../lib/series';
 import { AccountCard } from '../../components/AccountCard';
+import { ObsidianLink } from '../../components/ObsidianSheet';
 import { GradientButton, Segmented, SectionTitle } from '../../components/ui';
 import { genreEmoji, genreName } from '../../lib/genres';
 import { useStore } from '../../lib/store';
@@ -181,6 +182,7 @@ export default function ProfileScreen() {
       </LinearGradient>
 
       <AccountCard />
+      <ObsidianLink />
 
       {/* Статистика */}
       <SectionTitle>Статистика</SectionTitle>
