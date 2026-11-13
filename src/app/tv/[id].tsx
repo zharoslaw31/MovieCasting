@@ -274,7 +274,7 @@ export default function TvScreen() {
     };
   } else if (entry && next?.aired) {
     const code = epCode(next.season, next.episode);
-    primary = { title: width < 380 ? code : `Переглянув ${code}`, icon: 'checkmark', pair: gradients.brand, onPress: markNext };
+    primary = { title: width < 420 ? code : `Переглянув ${code}`, icon: 'checkmark', pair: gradients.brand, onPress: markNext };
   } else if (status === 'completed') {
     primary = { title: 'Переглянуто', icon: 'checkmark-done', pair: gradients.like, onPress: scrollToTracker };
   } else if (entry && next) {

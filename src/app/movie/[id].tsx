@@ -284,7 +284,7 @@ export default function MovieScreen() {
           style={[{ flex: 1 }, watched && { borderColor: colors.watched, backgroundColor: colors.watched + '22' }]}
         />
         <GradientButton
-          title={liked ? 'В обраному' : width < 380 ? 'В обране' : 'Подобається'}
+          title={liked ? 'В обраному' : width < 420 ? 'В обране' : 'Подобається'}
           icon={liked ? 'heart' : 'heart-outline'}
           colorsPair={liked ? gradients.like : gradients.brand}
           tight
