@@ -64,7 +64,7 @@ eas build -p android --profile preview
 
 ## Технології
 
-Expo SDK 58 · React Native · TypeScript · Expo Router · TMDB API · AsyncStorage (усі дані зберігаються локально на телефоні).
+Expo SDK 58 · React Native · TypeScript · Expo Router · TMDB API · Supabase (акаунт і синхронізація) · AsyncStorage (дані на пристрої). Без акаунта бібліотеку можна зберегти у файл: **Профіль → Налаштування → Резервна копія**.
 
 ```
 src/

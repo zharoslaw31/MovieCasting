@@ -182,7 +182,7 @@ const styles = StyleSheet.create({
   inputText: { flex: 1, color: colors.text, fontSize: 15, height: '100%' },
   empty: { alignItems: 'center', paddingTop: 60, paddingHorizontal: 30 },
   emptyEmoji: { fontSize: 46 },
-  emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: 10 },
+  emptyTitle: { color: colors.text, fontSize: 20, fontWeight: '800', marginTop: 10, textAlign: 'center' },
   emptyText: { color: colors.textDim, fontSize: 14, textAlign: 'center', marginTop: 8, lineHeight: 20 },
   row: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: radius.lg, backgroundColor: colors.bgElevated, borderWidth: 1, borderColor: colors.border },
   title: { color: colors.text, fontSize: 15, fontWeight: '800' },

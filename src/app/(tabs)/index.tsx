@@ -7,7 +7,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { SwipeDeck, SwipeDeckHandle } from '../../components/SwipeDeck';
 import { GradientButton, GhostButton, RoundButton } from '../../components/ui';
 import { tvMissingGenre } from '../../lib/genres';
-import { countActiveFilters, useHaptics, useStore } from '../../lib/store';
+import { countActiveFilters, UndoRestore, useHaptics, useStore } from '../../lib/store';
 import { buildTaste, createForYouPager, createPager, Pager } from '../../lib/tmdb';
 import { Movie, SwipeKind } from '../../lib/types';
 import { colors, gradients, radius, TAB_BAR_HEIGHT } from '../../theme';
@@ -100,16 +100,26 @@ export default function CastingScreen() {
     [swipe, haptic],
   );
 
-  const lastMovie = useRef<Movie[]>([]);
+  // для «скасувати»: картка і де вона була до свайпу (щоб повернути, наприклад, у «Бачив» чи «Не цікаво»)
+  const lastMovie = useRef<{ movie: Movie; before: UndoRestore }[]>([]);
+  const stateRef = useRef(state);
+  stateRef.current = state;
   const handleSwipe = (movie: Movie, kind: SwipeKind) => {
-    lastMovie.current = [movie, ...lastMovie.current].slice(0, 30);
+    const s = stateRef.current;
+    const before: UndoRestore = {};
+    (['liked', 'watched', 'disliked'] as const).forEach((l) => {
+      const e = s[l].find((x) => x.movie.id === movie.id);
+      if (e) before[l] = e;
+    });
+    lastMovie.current = [{ movie, before }, ...lastMovie.current].slice(0, 30);
     onSwipe(movie, kind);
   };
 
   const undo = () => {
-    const m = lastMovie.current.shift();
-    if (!m) return;
-    dispatch({ type: 'undo' });
+    const item = lastMovie.current.shift();
+    if (!item) return;
+    const m = item.movie;
+    dispatch({ type: 'undo', restore: item.before });
     haptic('warning');
     setQueue((q) => [m, ...q.filter((x) => x.id !== m.id)]);
   };
@@ -147,11 +157,11 @@ export default function CastingScreen() {
   return (
     <View style={[styles.screen, { paddingTop: insets.top + 6 }]}>
       <View style={styles.header}>
-        <View>
-          <Text style={[styles.logo, width < 380 && { fontSize: 22 }]}>
+        <View style={{ flex: 1, minWidth: 0, marginRight: 10 }}>
+          <Text style={[styles.logo, width < 400 && { fontSize: 23 }]} numberOfLines={1}>
             Movie<Text style={{ color: colors.accent }}>Casting</Text>
           </Text>
-          {api.demo ? <Text style={styles.sub}>Демо-режим · додайте ключ у Профілі</Text> : null}
+          {api.demo ? <Text style={styles.sub} numberOfLines={1}>Демо-режим · додайте ключ у Профілі</Text> : null}
         </View>
         <View style={{ flexDirection: 'row', gap: 8 }}>
         <Pressable accessibilityLabel="Пошук фільму" onPress={() => router.push('/search')} style={({ pressed }) => [styles.filterBtn, pressed && { opacity: 0.7 }]}>

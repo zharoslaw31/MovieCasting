@@ -8,7 +8,8 @@ import { AccountCard } from '../../components/AccountCard';
 import { ObsidianLink } from '../../components/ObsidianSheet';
 import { GradientButton, Segmented, SectionTitle } from '../../components/ui';
 import { genreEmoji, genreName } from '../../lib/genres';
-import { useStore } from '../../lib/store';
+import { syncDataOf, useStore } from '../../lib/store';
+import { backupSupported, downloadBackup, pickBackup } from '../../lib/backup';
 import { ENV_API_KEY, validateKey } from '../../lib/tmdb';
 import { colors, gradients, radius, TAB_BAR_HEIGHT } from '../../theme';
 
@@ -102,13 +103,22 @@ export default function ProfileScreen() {
   const reset = () => {
     const doReset = () => dispatch({ type: 'resetLibrary' });
     if (Platform.OS === 'web') {
-      if (globalThis.confirm?.('Очистити бібліотеку та статистику?')) doReset();
+      if (globalThis.confirm?.('Очистити бібліотеку та статистику?\n\nЯкщо ви увійшли в акаунт, бібліотеку буде очищено й у хмарі. Спершу можна зберегти резервну копію.')) doReset();
       return;
     }
     Alert.alert('Очистити бібліотеку?', 'Буде видалено всі вподобані, переглянуті фільми та статистику.', [
       { text: 'Скасувати', style: 'cancel' },
       { text: 'Очистити', style: 'destructive', onPress: doReset },
     ]);
+  };
+
+  const [backupMsg, setBackupMsg] = useState<{ text: string; ok: boolean } | null>(null);
+  const restore = async () => {
+    const r = await pickBackup();
+    if (!r) return;
+    if (typeof r === 'string') return setBackupMsg({ text: r, ok: false });
+    dispatch({ type: 'importData', data: r });
+    setBackupMsg({ text: `Додано з копії: ${r.liked.length} в обраному, ${r.watched.length} переглянутих`, ok: true });
   };
 
   const since = new Date(state.profile.createdAt).toLocaleDateString('uk-UA', { day: 'numeric', month: 'long', year: 'numeric' });
@@ -320,6 +330,23 @@ export default function ProfileScreen() {
         </View>
         {Platform.OS !== 'web' ? <Row label="Вібровідгук" value={state.settings.haptics} onChange={(v) => dispatch({ type: 'settings', settings: { haptics: v } })} /> : null}
         <Row label="Демо-режим" value={api.demo} disabled={!(state.settings.apiKey || ENV_API_KEY)} onChange={(v) => dispatch({ type: 'settings', settings: { demo: v } })} />
+        {backupSupported ? (
+          <>
+            <Text style={[styles.settingLabel, { marginTop: 20 }]}>Резервна копія</Text>
+            <Text style={[styles.muted, { marginTop: 4 }]}>Збережіть бібліотеку у файл або відновіть її з файлу — дані з копії додаються до наявних.</Text>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 12 }}>
+              <Pressable onPress={() => downloadBackup(syncDataOf(state))} style={({ pressed }) => [styles.backupBtn, pressed && { opacity: 0.7 }]}>
+                <Ionicons name="download-outline" size={17} color={colors.text} />
+                <Text style={styles.backupText}>Зберегти</Text>
+              </Pressable>
+              <Pressable onPress={restore} style={({ pressed }) => [styles.backupBtn, pressed && { opacity: 0.7 }]}>
+                <Ionicons name="push-outline" size={17} color={colors.text} />
+                <Text style={styles.backupText}>Відновити</Text>
+              </Pressable>
+            </View>
+            {backupMsg ? <Text style={[styles.muted, { marginTop: 8, color: backupMsg.ok ? colors.like : colors.nope }]}>{backupMsg.text}</Text> : null}
+          </>
+        ) : null}
         <Pressable onPress={reset} style={styles.danger}>
           <Ionicons name="trash-outline" size={18} color={colors.nope} />
           <Text style={styles.dangerText}>Очистити бібліотеку і статистику</Text>
@@ -415,6 +442,8 @@ const styles = StyleSheet.create({
   link: { color: colors.accent, fontWeight: '700', fontSize: 14 },
   settingLabel: { color: colors.text, fontSize: 15, fontWeight: '600' },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 16 },
+  backupBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 42, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.border, backgroundColor: colors.card },
+  backupText: { color: colors.text, fontSize: 14, fontWeight: '700' },
   danger: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 20, paddingTop: 16, borderTopWidth: 1, borderTopColor: colors.border },
   dangerText: { color: colors.nope, fontSize: 15, fontWeight: '700' },
   footer: { color: colors.textMuted, fontSize: 11, textAlign: 'center', marginTop: 24, lineHeight: 16, paddingHorizontal: 20 },

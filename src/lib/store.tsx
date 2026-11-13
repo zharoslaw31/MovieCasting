@@ -42,11 +42,13 @@ const initial: State = {
 };
 
 export type ListName = 'liked' | 'watched' | 'disliked';
+/** Як картка лежала в списках до свайпу — щоб «скасувати» повернуло все як було. */
+export type UndoRestore = Partial<Record<ListName, LibraryEntry>>;
 
 type Action =
   | { type: 'hydrate'; state: Partial<State> }
   | { type: 'swipe'; movie: Movie; kind: SwipeKind }
-  | { type: 'undo' }
+  | { type: 'undo'; restore?: UndoRestore }
   | { type: 'toggleLike'; movie: Movie }
   | { type: 'toggleWatched'; movie: Movie }
   | { type: 'toggleDislike'; movie: Movie }
@@ -66,6 +68,7 @@ type Action =
   | { type: 'episodes'; show: Movie; changes: { season: number; episodes: number[]; on: boolean }[]; meta?: ShowMeta }
   | { type: 'trackMeta'; show: Movie; meta: ShowMeta }
   | { type: 'applyCloud'; data: SyncData; userId: string; at: number }
+  | { type: 'importData'; data: SyncData }
   | { type: 'cloudLinked'; userId: string; at: number }
   | { type: 'signedOut' };
 
@@ -225,8 +228,19 @@ function reducer(s: State, a0: Action): State {
       const last = s.history[s.history.length - 1];
       if (!last) return s;
       const history = s.history.slice(0, -1);
+      const lists: ListName[] = ['liked', 'watched', 'disliked'];
+      const next = { ...s, history };
+      if (a.restore) {
+        // повертаємо картку туди, де вона була до свайпу
+        lists.forEach((l) => {
+          const e = a.restore![l];
+          const rest = without(s[l], last.id);
+          next[l] = e ? [e, ...rest].sort((x, y) => y.at - x.at) : rest;
+        });
+        return next;
+      }
       const list = last.kind === 'like' ? 'liked' : last.kind === 'nope' ? 'disliked' : 'watched';
-      return { ...s, history, [list]: without(s[list], last.id) };
+      return { ...next, [list]: without(s[list], last.id) };
     }
     case 'toggleLike':
       return has(s.liked, a.movie.id)
@@ -281,6 +295,11 @@ function reducer(s: State, a0: Action): State {
       return { ...s, liked: [], watched: [], disliked: [], history: [], trailersViewed: 0, tracking: [] };
     case 'applyCloud':
       return { ...s, ...a.data, liked: slimEntries(a.data.liked), watched: slimEntries(a.data.watched), disliked: slimEntries(a.data.disliked), tracking: a.data.tracking ?? [], cloudUserId: a.userId, lastSyncAt: a.at };
+    case 'importData': {
+      // копія з файлу додається до того, що вже є на пристрої
+      const m = mergeSync(syncDataOf(s), a.data);
+      return { ...s, ...m, profile: s.profile, liked: slimEntries(m.liked), watched: slimEntries(m.watched), disliked: slimEntries(m.disliked), tracking: m.tracking ?? [] };
+    }
     case 'cloudLinked':
       return { ...s, cloudUserId: a.userId, lastSyncAt: a.at };
     case 'signedOut':

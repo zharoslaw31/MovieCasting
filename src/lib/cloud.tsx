@@ -205,9 +205,20 @@ export function CloudProvider({ children }: { children: React.ReactNode }) {
       setStatus('syncing');
       try {
         const data = JSON.parse(syncJson) as SyncData;
-        const at = await push(userId, data);
-        lastPushedJson.current = syncJson;
-        dispatch({ type: 'cloudLinked', userId, at });
+        // якщо тим часом бібліотеку змінили на іншому пристрої (обидва відкриті) — спершу об'єднуємо,
+        // інакше цей пристрій перезаписав би чужі зміни своєю старою копією
+        const row = await pull(userId);
+        const last = stateRef.current.lastSyncAt ?? 0;
+        if (row && new Date(row.updated_at).getTime() > last + 1000) {
+          const merged = mergeSync(data, row.data);
+          const at = await push(userId, merged);
+          lastPushedJson.current = JSON.stringify(merged);
+          dispatch({ type: 'applyCloud', data: merged, userId, at });
+        } else {
+          const at = await push(userId, data);
+          lastPushedJson.current = syncJson;
+          dispatch({ type: 'cloudLinked', userId, at });
+        }
         setStatus('synced');
         setError(null);
       } catch (e) {
